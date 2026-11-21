@@ -12,8 +12,10 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
     this.available = 0;
     this.frac = 0;
 
-    // Pre-buffer 150ms before starting playback to absorb network jitter cleanly
-    this.prebufferSamples = Math.floor(this.inputRate * 0.15);
+    // Pre-buffer 220ms initially to absorb network jitter cleanly, 100ms after underrun
+    this.initialPrebufferSamples = Math.floor(this.inputRate * 0.22);
+    this.rebufferSamples = Math.floor(this.inputRate * 0.10);
+    this.targetPrebuffer = this.initialPrebufferSamples;
     this.playing = false;
     this.gain = 0;
 
@@ -24,7 +26,9 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
       if (msg.type === "config" && msg.sampleRate) {
         this.inputRate = msg.sampleRate;
         this.ratio = this.inputRate / sampleRate;
-        this.prebufferSamples = Math.floor(this.inputRate * 0.15);
+        this.initialPrebufferSamples = Math.floor(this.inputRate * 0.22);
+        this.rebufferSamples = Math.floor(this.inputRate * 0.10);
+        this.targetPrebuffer = this.initialPrebufferSamples;
         return;
       }
 
@@ -33,6 +37,7 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
           this.playing = true;
           this.port.postMessage({ type: "state", playing: true });
         }
+        this.targetPrebuffer = this.initialPrebufferSamples;
         return;
       }
 
@@ -43,6 +48,7 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
         this.frac = 0;
         this.playing = false;
         this.gain = 0;
+        this.targetPrebuffer = this.initialPrebufferSamples;
         this.port.postMessage({ type: "state", playing: false });
         return;
       }
@@ -66,7 +72,7 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
           this.available++;
         }
 
-        if (!this.playing && this.available >= this.prebufferSamples) {
+        if (!this.playing && this.available >= this.targetPrebuffer) {
           this.playing = true;
           this.port.postMessage({ type: "state", playing: true });
         }
@@ -94,6 +100,7 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
         if (this.gain === 0 && this.playing) {
           this.playing = false;
           this.frac = 0;
+          this.targetPrebuffer = this.rebufferSamples;
           this.port.postMessage({ type: "state", playing: false });
         }
         continue;

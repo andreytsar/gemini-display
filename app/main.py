@@ -26,7 +26,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 settings = load_settings()
 weather_service = WeatherService(cache_ttl_seconds=600)
-camera_manager = CameraManager(get_rotation=lambda: settings.camera_rotate, fps=12.0, jpeg_quality=75)
+camera_manager = CameraManager(get_rotation=lambda: settings.camera_rotate, fps=8.0, jpeg_quality=68)
 
 
 @asynccontextmanager

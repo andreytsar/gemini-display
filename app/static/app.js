@@ -362,21 +362,21 @@
     });
 
     audioCtx = new (window.AudioContext || window.webkitAudioContext)({
-      latencyHint: "interactive",
+      latencyHint: "playback",
     });
     if (audioCtx.state === "suspended") {
       await audioCtx.resume();
     }
 
-    await audioCtx.audioWorklet.addModule("/static/pcm-worklet.js?v=2");
-    await audioCtx.audioWorklet.addModule("/static/pcm-player-worklet.js?v=2");
+    await audioCtx.audioWorklet.addModule("/static/pcm-worklet.js?v=5");
+    await audioCtx.audioWorklet.addModule("/static/pcm-player-worklet.js?v=5");
 
     // Capture worklet (native -> 16kHz anti-aliased PCM)
     const source = audioCtx.createMediaStreamSource(micStream);
     captureNode = new AudioWorkletNode(audioCtx, "pcm-capture-processor");
     captureNode.port.onmessage = (event) => {
       const { pcm, level } = event.data;
-      $("mic-meter-bar").style.width = `${Math.round(level * 100)}%`;
+      $("mic-meter-bar").style.transform = `scaleX(${level.toFixed(3)})`;
       if (ws && ws.readyState === WebSocket.OPEN && !isMicMuted) {
         ws.send(pcm);
       }
@@ -396,7 +396,7 @@
   }
 
   function stopAudio() {
-    $("mic-meter-bar").style.width = "0%";
+    $("mic-meter-bar").style.transform = "scaleX(0)";
     if (captureNode) {
       try { captureNode.disconnect(); } catch {}
       captureNode = null;

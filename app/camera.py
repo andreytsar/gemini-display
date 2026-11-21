@@ -18,7 +18,7 @@ class CameraManager:
     ensuring zero idle CPU usage and hardware privacy when not in video mode.
     """
 
-    def __init__(self, get_rotation: Callable[[], int], fps: float = 12.0, jpeg_quality: int = 75) -> None:
+    def __init__(self, get_rotation: Callable[[], int], fps: float = 8.0, jpeg_quality: int = 68) -> None:
         self._get_rotation = get_rotation
         self._fps = fps
         self._jpeg_quality = jpeg_quality
@@ -101,10 +101,10 @@ class CameraManager:
             from picamera2 import Picamera2
 
             picam2 = Picamera2()
-            cfg = picam2.create_preview_configuration(main={"size": (640, 480)})
+            cfg = picam2.create_preview_configuration(main={"size": (512, 384)})
             picam2.configure(cfg)
             picam2.start()
-            logger.info("Picamera2 started (640x480)")
+            logger.info("Picamera2 started (512x384)")
 
             interval = 1.0 / max(1.0, self._fps)
             while True:
