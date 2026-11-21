@@ -127,7 +127,7 @@
       const dot = $("api-status-dot");
       if (appSettings.api_key_set) {
         dot.className = "status-dot ready";
-        $("gemini-ready-sub").textContent = `${appSettings.gemini_voice} · Ready for voice & video`;
+        $("gemini-ready-sub").textContent = `${appSettings.gemini_voice} · EN / עב / RU`;
       } else {
         dot.className = "status-dot warn";
         $("gemini-ready-sub").textContent = "Tap Settings (⚙) to add your Gemini API key";
@@ -313,6 +313,7 @@
     } else {
       const div = document.createElement("div");
       div.className = `bubble ${role}`;
+      div.dir = "auto";
       div.textContent = text;
       list.appendChild(div);
       lastRole = role;

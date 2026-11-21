@@ -21,6 +21,9 @@ async def build_system_instruction(settings: Settings, weather_service: WeatherS
     now = datetime.now()
     context_lines = [
         settings.system_prompt,
+        "Supported languages: English, Hebrew (עברית), and Russian (Русский). "
+        "Always detect the user's spoken language and respond naturally in that exact same language, "
+        "switching seamlessly if the user switches languages mid-conversation.",
         f"Current local date and time: {now.strftime('%A, %d %B %Y, %H:%M')}.",
         f"Location: {settings.weather_city}.",
     ]
