@@ -18,8 +18,15 @@ class CameraManager:
     ensuring zero idle CPU usage and hardware privacy when not in video mode.
     """
 
-    def __init__(self, get_rotation: Callable[[], int], fps: float = 8.0, jpeg_quality: int = 68) -> None:
+    def __init__(
+        self,
+        get_rotation: Callable[[], int],
+        get_hflip: Callable[[], bool] = lambda: True,
+        fps: float = 8.0,
+        jpeg_quality: int = 68,
+    ) -> None:
         self._get_rotation = get_rotation
+        self._get_hflip = get_hflip
         self._fps = fps
         self._jpeg_quality = jpeg_quality
 
@@ -122,6 +129,8 @@ class CameraManager:
                     img = img.transpose(Image.Transpose.ROTATE_90)
                 elif rot == 270:
                     img = img.transpose(Image.Transpose.ROTATE_270)
+                if self._get_hflip():
+                    img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
 
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=self._jpeg_quality, optimize=False)

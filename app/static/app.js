@@ -181,13 +181,19 @@
       vp.appendChild(b);
     });
 
-    document.querySelectorAll("#rotate-pills .pill-opt").forEach((b) => {
+    document.querySelectorAll("#rotate-pills .pill-opt[data-rot]").forEach((b) => {
       b.classList.toggle("selected", Number(b.dataset.rot) === Number(appSettings.camera_rotate));
       b.onclick = () => {
-        document.querySelectorAll("#rotate-pills .pill-opt").forEach((x) => x.classList.remove("selected"));
+        document.querySelectorAll("#rotate-pills .pill-opt[data-rot]").forEach((x) => x.classList.remove("selected"));
         b.classList.add("selected");
       };
     });
+
+    const hflipBtn = $("hflip-pill");
+    if (hflipBtn) {
+      hflipBtn.classList.toggle("selected", Boolean(appSettings.camera_hflip));
+      hflipBtn.onclick = () => hflipBtn.classList.toggle("selected");
+    }
 
     $("settings-modal").classList.remove("hidden");
   }
@@ -232,13 +238,15 @@
   async function saveSettings() {
     const selModel = $("model-pills").querySelector(".selected")?.dataset.model;
     const selVoice = $("voice-pills").querySelector(".selected")?.dataset.voice;
-    const selRot = $("rotate-pills").querySelector(".selected")?.dataset.rot;
+    const selRot = $("rotate-pills").querySelector(".selected[data-rot]")?.dataset.rot;
+    const selHflip = $("hflip-pill")?.classList.contains("selected");
     const apiKey = $("setting-api-key").value.trim();
 
     const payload = {
       gemini_model: selModel,
       gemini_voice: selVoice,
       camera_rotate: selRot !== undefined ? Number(selRot) : undefined,
+      camera_hflip: selHflip,
     };
     if (apiKey) payload.gemini_api_key = apiKey;
     if (pendingCity) {

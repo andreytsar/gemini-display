@@ -26,7 +26,12 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 settings = load_settings()
 weather_service = WeatherService(cache_ttl_seconds=600)
-camera_manager = CameraManager(get_rotation=lambda: settings.camera_rotate, fps=8.0, jpeg_quality=68)
+camera_manager = CameraManager(
+    get_rotation=lambda: settings.camera_rotate,
+    get_hflip=lambda: settings.camera_hflip,
+    fps=8.0,
+    jpeg_quality=68,
+)
 
 
 @asynccontextmanager
@@ -103,6 +108,7 @@ class SettingsUpdate(BaseModel):
     weather_lat: float | None = None
     weather_lon: float | None = None
     camera_rotate: int | None = None
+    camera_hflip: bool | None = None
     system_prompt: str | None = None
 
 
@@ -123,6 +129,8 @@ async def api_update_settings(body: SettingsUpdate) -> dict[str, Any]:
         settings.weather_lon = body.weather_lon
     if body.camera_rotate is not None and body.camera_rotate in (0, 90, 180, 270):
         settings.camera_rotate = body.camera_rotate
+    if body.camera_hflip is not None:
+        settings.camera_hflip = body.camera_hflip
     if body.system_prompt is not None and body.system_prompt.strip():
         settings.system_prompt = body.system_prompt.strip()
 
