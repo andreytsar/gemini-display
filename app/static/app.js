@@ -250,10 +250,13 @@
       camera_hflip: selHflip,
     };
     if (apiKey) payload.gemini_api_key = apiKey;
-    if (pendingCity) {
+    const typedCity = $("setting-city-input").value.trim();
+    if (pendingCity && pendingCity.name.toLowerCase() === typedCity.toLowerCase()) {
       payload.weather_city = pendingCity.name;
       payload.weather_lat = pendingCity.lat;
       payload.weather_lon = pendingCity.lon;
+    } else if (typedCity && (!appSettings || typedCity.toLowerCase() !== appSettings.weather_city.toLowerCase())) {
+      payload.weather_city = typedCity;
     }
 
     try {
@@ -262,6 +265,11 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        $("settings-save-msg").textContent = err.detail || "Failed to save";
+        return;
+      }
       appSettings = await r.json();
       await loadSettings();
       await loadWeather(true);

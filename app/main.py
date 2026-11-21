@@ -122,11 +122,24 @@ async def api_update_settings(body: SettingsUpdate) -> dict[str, Any]:
     if body.gemini_voice is not None and body.gemini_voice in AVAILABLE_VOICES:
         settings.gemini_voice = body.gemini_voice
     if body.weather_city is not None and body.weather_city.strip():
-        settings.weather_city = body.weather_city.strip()
-    if body.weather_lat is not None:
-        settings.weather_lat = body.weather_lat
-    if body.weather_lon is not None:
-        settings.weather_lon = body.weather_lon
+        city_name = body.weather_city.strip()
+        if body.weather_lat is not None and body.weather_lon is not None:
+            settings.weather_city = city_name
+            settings.weather_lat = body.weather_lat
+            settings.weather_lon = body.weather_lon
+        elif city_name.lower() != settings.weather_city.lower():
+            matches = await weather_service.search_city(city_name)
+            if not matches:
+                raise HTTPException(status_code=404, detail=f"City not found: {city_name}")
+            top = matches[0]
+            settings.weather_city = top["name"]
+            settings.weather_lat = float(top["lat"])
+            settings.weather_lon = float(top["lon"])
+    else:
+        if body.weather_lat is not None:
+            settings.weather_lat = body.weather_lat
+        if body.weather_lon is not None:
+            settings.weather_lon = body.weather_lon
     if body.camera_rotate is not None and body.camera_rotate in (0, 90, 180, 270):
         settings.camera_rotate = body.camera_rotate
     if body.camera_hflip is not None:
