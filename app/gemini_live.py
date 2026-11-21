@@ -154,7 +154,7 @@ async def handle_live_websocket(
                 except WebSocketDisconnect:
                     pass
                 except Exception as exc:
-                    logger.debug("client_to_gemini ended: %s", exc)
+                    logger.warning("client_to_gemini ended: %s", exc)
                 finally:
                     stop_event.set()
 
@@ -171,7 +171,7 @@ async def handle_live_websocket(
                 except asyncio.CancelledError:
                     pass
                 except Exception as exc:
-                    logger.debug("camera_to_gemini ended: %s", exc)
+                    logger.warning("camera_to_gemini ended: %s", exc)
 
             async def gemini_to_client() -> None:
                 sent_rate: int | None = None
@@ -218,7 +218,7 @@ async def handle_live_websocket(
                                             logger.info("Gemini audio format: %s (len=%d)", mime, len(part.inline_data.data))
                                             await send_json({"type": "audio_format", "rate": rate, "mime": mime})
                                         await ws.send_bytes(part.inline_data.data)
-                                    elif part.text:
+                                    elif part.text and not getattr(part, "thought", False):
                                         await send_json({
                                             "type": "transcript",
                                             "role": "assistant",
