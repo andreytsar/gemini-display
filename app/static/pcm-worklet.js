@@ -12,6 +12,11 @@ class PcmCaptureProcessor extends AudioWorkletProcessor {
     this.levelCount = 0;
     this.muted = false;
 
+    // Gentle noise gate: suppress steady low-level room hiss so ASR doesn't hallucinate foreign words
+    this.gateThreshold = 0.008;
+    this.hangoverFrames = 4; // 400 ms hangover after speech drops below threshold
+    this.hangoverLeft = 0;
+
     this.port.onmessage = (event) => {
       if (event.data && typeof event.data.muted === "boolean") {
         this.muted = event.data.muted;
@@ -49,8 +54,18 @@ class PcmCaptureProcessor extends AudioWorkletProcessor {
 
         if (this.outIndex >= this.outBuffer.length) {
           const rms = this.levelCount > 0 ? Math.sqrt(this.levelSq / this.levelCount) : 0;
-          const copy = this.outBuffer.slice(0);
-          this.port.postMessage({ pcm: copy.buffer, level: Math.min(1, rms * 4.5) }, [copy.buffer]);
+          let copy;
+          if (rms >= this.gateThreshold) {
+            this.hangoverLeft = this.hangoverFrames;
+            copy = this.outBuffer.slice(0);
+          } else if (this.hangoverLeft > 0) {
+            this.hangoverLeft--;
+            copy = this.outBuffer.slice(0);
+          } else {
+            copy = new Int16Array(this.outBuffer.length); // clean digital silence
+          }
+          const displayLevel = rms >= this.gateThreshold ? Math.min(1, rms * 4.5) : 0;
+          this.port.postMessage({ pcm: copy.buffer, level: displayLevel }, [copy.buffer]);
           this.outIndex = 0;
           this.levelSq = 0;
           this.levelCount = 0;

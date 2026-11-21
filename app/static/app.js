@@ -385,8 +385,8 @@
       await audioCtx.resume();
     }
 
-    await audioCtx.audioWorklet.addModule("/static/pcm-worklet.js?v=5");
-    await audioCtx.audioWorklet.addModule("/static/pcm-player-worklet.js?v=5");
+    await audioCtx.audioWorklet.addModule("/static/pcm-worklet.js?v=9");
+    await audioCtx.audioWorklet.addModule("/static/pcm-player-worklet.js?v=9");
 
     // Capture worklet (native -> 16kHz anti-aliased PCM)
     const source = audioCtx.createMediaStreamSource(micStream);

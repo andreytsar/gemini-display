@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Any
 
@@ -16,14 +17,30 @@ from .weather import WeatherService
 
 logger = logging.getLogger(__name__)
 
+ALLOWED_LANGUAGES = ["en-US", "he-IL", "ru-RU"]
+
+# Matches any letter outside Basic/Extended Latin, Hebrew, and Cyrillic
+_DISALLOWED_SCRIPT_RE = re.compile(
+    r"[^\x00-\x7F\u00C0-\u024F\u0400-\u04FF\u0590-\u05FF\u2000-\u206F\s]"
+)
+
+
+def _is_allowed_transcript(text: str) -> bool:
+    if not text or not text.strip():
+        return False
+    # Reject chunks dominated by scripts outside English/Hebrew/Russian
+    disallowed = len(_DISALLOWED_SCRIPT_RE.findall(text))
+    return disallowed == 0
+
 
 async def build_system_instruction(settings: Settings, weather_service: WeatherService) -> str:
     now = datetime.now()
     context_lines = [
         settings.system_prompt,
-        "Supported languages: English, Hebrew (עברית), and Russian (Русский). "
-        "Always detect the user's spoken language and respond naturally in that exact same language, "
-        "switching seamlessly if the user switches languages mid-conversation.",
+        "Strict language rule: The user ONLY speaks English, Hebrew (עברית), or Russian (Русский). "
+        "Never interpret unclear audio or background noise as any other language. "
+        "Always respond naturally in whichever of those three languages (English, Hebrew, or Russian) the user spoke, "
+        "switching seamlessly if the user switches between them.",
         f"Current local date and time: {now.strftime('%A, %d %B %Y, %H:%M')}.",
         f"Location: {settings.weather_city}.",
     ]
@@ -104,8 +121,12 @@ async def handle_live_websocket(
                     )
                 )
             ),
-            input_audio_transcription=types.AudioTranscriptionConfig(),
-            output_audio_transcription=types.AudioTranscriptionConfig(),
+            input_audio_transcription=types.AudioTranscriptionConfig(
+                language_codes=ALLOWED_LANGUAGES,
+            ),
+            output_audio_transcription=types.AudioTranscriptionConfig(
+                language_codes=ALLOWED_LANGUAGES,
+            ),
             system_instruction=types.Content(
                 parts=[types.Part(text=system_instruction)]
             ),
@@ -188,12 +209,15 @@ async def handle_live_websocket(
                                 await send_json({"type": "interrupted"})
 
                             if sc.input_transcription and sc.input_transcription.text:
-                                await send_json({
-                                    "type": "transcript",
-                                    "role": "user",
-                                    "text": sc.input_transcription.text,
-                                    "final": False,
-                                })
+                                if _is_allowed_transcript(sc.input_transcription.text):
+                                    await send_json({
+                                        "type": "transcript",
+                                        "role": "user",
+                                        "text": sc.input_transcription.text,
+                                        "final": False,
+                                    })
+                                else:
+                                    logger.debug("Filtered non-EN/HE/RU input transcript: %r", sc.input_transcription.text)
 
                             if sc.output_transcription and sc.output_transcription.text:
                                 await send_json({
