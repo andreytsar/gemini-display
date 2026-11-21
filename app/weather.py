@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime
 from typing import Any
@@ -64,10 +65,23 @@ class WeatherService:
             "forecast_days": 5,
         }
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            raw = resp.json()
+        raw = None
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=12.0) as client:
+                    resp = await client.get(url, params=params)
+                    resp.raise_for_status()
+                    raw = resp.json()
+                    break
+            except Exception as exc:
+                last_exc = exc
+                if attempt == 0:
+                    await asyncio.sleep(1.5)
+        if raw is None:
+            if self._cache and self._cache_key == key:
+                return self._cache
+            raise last_exc or RuntimeError("Weather fetch failed")
 
         cur = raw.get("current", {})
         daily = raw.get("daily", {})

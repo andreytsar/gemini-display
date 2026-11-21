@@ -62,7 +62,9 @@
   setInterval(updateClock, 1000);
 
   // --- Weather ---
+  let weatherRetryTimer = null;
   async function loadWeather(force = false) {
+    clearTimeout(weatherRetryTimer);
     try {
       const resp = await fetch(`/api/weather${force ? "?refresh=true" : ""}`);
       if (!resp.ok) throw new Error("Weather request failed");
@@ -94,7 +96,8 @@
         strip.appendChild(div);
       });
     } catch (err) {
-      $("weather-desc").textContent = "Weather unavailable";
+      $("weather-desc").textContent = "Retrying weather...";
+      weatherRetryTimer = setTimeout(() => loadWeather(false), 15000);
     }
   }
 
