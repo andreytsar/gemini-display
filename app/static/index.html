@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark" />
   <title>Gemini Smart Display</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='white'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="/static/style.css?v=12" />
+  <link rel="stylesheet" href="/static/style.css?v=13" />
 </head>
 <body>
   <div class="ambient-bg">
@@ -45,15 +45,33 @@
 
     <!-- Main Dashboard View -->
     <main class="dashboard" id="dashboard-view">
-      <!-- Left: Clock, Date, 4-Day Forecast -->
+      <!-- Left: Current Weather, 4-Day Forecast, Sun & Moon -->
       <section class="glass-card hero-card">
-        <div class="clock-block">
-          <div class="clock-row">
-            <span class="clock-hm" id="clock-hm">--:--</span>
-            <span class="clock-sec" id="clock-sec">--</span>
+        <div class="weather-block">
+          <div class="weather-top">
+            <div class="weather-icon-wrap" id="weather-icon"></div>
+            <div class="weather-main">
+              <div class="temp-row">
+                <span class="temp-now" id="temp-now">--°</span>
+                <span class="temp-hl" id="temp-hl">H:--° L:--°</span>
+              </div>
+              <div class="weather-desc" id="weather-desc">Fetching weather...</div>
+            </div>
           </div>
-          <div class="weekday-text" id="weekday-text">Loading...</div>
-          <div class="date-text" id="date-text"></div>
+          <div class="weather-metrics">
+            <div class="metric">
+              <span class="metric-label">Feels like</span>
+              <span class="metric-val" id="metric-feels">--°</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Humidity</span>
+              <span class="metric-val" id="metric-humidity">--%</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Wind</span>
+              <span class="metric-val" id="metric-wind">-- km/h</span>
+            </div>
+          </div>
         </div>
 
         <div class="forecast-strip" id="forecast-strip">
@@ -108,33 +126,15 @@
         </div>
       </section>
 
-      <!-- Right: Weather + Gemini Actions -->
+      <!-- Right: Date & Time + Gemini Actions -->
       <section class="right-col">
-        <div class="glass-card weather-card">
-          <div class="weather-top">
-            <div class="weather-icon-wrap" id="weather-icon"></div>
-            <div class="weather-main">
-              <div class="temp-row">
-                <span class="temp-now" id="temp-now">--°</span>
-                <span class="temp-hl" id="temp-hl">H:--° L:--°</span>
-              </div>
-              <div class="weather-desc" id="weather-desc">Fetching weather...</div>
-            </div>
+        <div class="glass-card clock-card">
+          <div class="clock-row">
+            <span class="clock-hm" id="clock-hm">--:--</span>
+            <span class="clock-sec" id="clock-sec">--</span>
           </div>
-          <div class="weather-metrics">
-            <div class="metric">
-              <span class="metric-label">Feels like</span>
-              <span class="metric-val" id="metric-feels">--°</span>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Humidity</span>
-              <span class="metric-val" id="metric-humidity">--%</span>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Wind</span>
-              <span class="metric-val" id="metric-wind">-- km/h</span>
-            </div>
-          </div>
+          <div class="weekday-text" id="weekday-text">Loading...</div>
+          <div class="date-text" id="date-text"></div>
         </div>
 
         <div class="glass-card gemini-card">

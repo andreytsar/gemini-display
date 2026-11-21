@@ -195,7 +195,7 @@ html, body {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 1.22fr 1fr;
+  grid-template-columns: 1.18fr 1fr;
   gap: 14px;
 }
 
@@ -207,7 +207,14 @@ html, body {
   gap: 12px;
 }
 
-.clock-block {
+.weather-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.clock-card {
+  padding: 18px 22px 16px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -216,35 +223,35 @@ html, body {
 .clock-row {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 8px;
 }
 
 .clock-hm {
-  font-size: 102px;
+  font-size: 86px;
   font-weight: 700;
   line-height: 0.94;
-  letter-spacing: -4px;
+  letter-spacing: -3px;
   font-variant-numeric: tabular-nums;
   color: #ffffff;
-  text-shadow: 0 2px 24px rgba(56, 189, 248, 0.32);
+  text-shadow: 0 2px 22px rgba(56, 189, 248, 0.32);
 }
 
 .clock-sec {
-  font-size: 34px;
+  font-size: 30px;
   font-weight: 600;
   color: #7dd3fc;
   font-variant-numeric: tabular-nums;
 }
 
 .weekday-text {
-  font-size: 30px;
+  font-size: 28px;
   font-weight: 700;
   color: #f8fafc;
   margin-top: 6px;
 }
 
 .date-text {
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 500;
   color: #cbd5e1;
 }
