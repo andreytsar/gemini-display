@@ -594,6 +594,7 @@
     if (img.classList.contains("hidden")) {
       img.src = `/api/camera/stream?t=${Date.now()}`;
       img.classList.remove("hidden");
+      requestAnimationFrame(() => img.scrollIntoView({ behavior: "smooth", block: "nearest" }));
     } else {
       img.src = "";
       img.classList.add("hidden");
