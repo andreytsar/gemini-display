@@ -9,8 +9,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_PATH = BASE_DIR / ".env"
 
 AVAILABLE_MODELS = [
+    "gemini-3.8-live",
+    "gemini-3.8-live-extended-thinking",
     "gemini-3.1-flash-live-preview",
-    "gemini-2.5-flash-native-audio-preview-12-2025",
+    "gemini-2.5-flash-native-audio-latest",
 ]
 
 AVAILABLE_VOICES = [

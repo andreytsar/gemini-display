@@ -136,7 +136,8 @@
     } catch {}
   }
 
-  function openSettings() {
+  async function openSettings() {
+    await loadSettings();
     if (!appSettings) return;
     pendingCity = null;
     $("setting-api-key").value = "";
