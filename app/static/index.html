@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark" />
   <title>Gemini Smart Display</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='white'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="/static/style.css?v=13" />
+  <link rel="stylesheet" href="/static/style.css?v=14" />
 </head>
 <body>
   <div class="ambient-bg">
@@ -45,7 +45,54 @@
 
     <!-- Main Dashboard View -->
     <main class="dashboard" id="dashboard-view">
-      <!-- Left: Current Weather, 4-Day Forecast, Sun & Moon -->
+      <!-- Left: Date & Time + Gemini Actions -->
+      <section class="right-col">
+        <div class="glass-card clock-card">
+          <div class="clock-row">
+            <span class="clock-hm" id="clock-hm">--:--</span>
+            <span class="clock-sec" id="clock-sec">--</span>
+          </div>
+          <div class="weekday-text" id="weekday-text">Loading...</div>
+          <div class="date-text" id="date-text"></div>
+        </div>
+
+        <div class="glass-card gemini-card">
+          <div class="gemini-header">
+            <div class="gemini-spark">✦</div>
+            <div>
+              <div class="gemini-title">Gemini Live</div>
+              <div class="gemini-sub" id="gemini-ready-sub">Tap to start voice or video chat</div>
+            </div>
+          </div>
+
+          <div class="action-buttons">
+            <button class="action-btn btn-voice" id="start-voice-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+                <line x1="8" y1="23" x2="16" y2="23" />
+              </svg>
+              <span>Voice Chat</span>
+            </button>
+            <button class="action-btn btn-video" id="start-video-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="23 7 16 12 23 17 23 7" />
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+              </svg>
+              <span>Video Chat</span>
+            </button>
+          </div>
+
+          <div class="quick-prompts">
+            <button class="chip-btn" data-mode="voice" data-prompt="Give me a brief friendly update on today's date, time, and weather.">Weather briefing</button>
+            <button class="chip-btn" data-mode="video" data-prompt="Look through the camera and tell me what you see.">What do you see?</button>
+            <button class="chip-btn" data-mode="voice" data-prompt="Tell me one short, surprising fun fact.">Fun fact</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: Current Weather, 4-Day Forecast, Sun & Moon -->
       <section class="glass-card hero-card">
         <div class="weather-block">
           <div class="weather-top">
@@ -122,53 +169,6 @@
                 <span class="astro-val" id="moon-set">--:--</span>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Right: Date & Time + Gemini Actions -->
-      <section class="right-col">
-        <div class="glass-card clock-card">
-          <div class="clock-row">
-            <span class="clock-hm" id="clock-hm">--:--</span>
-            <span class="clock-sec" id="clock-sec">--</span>
-          </div>
-          <div class="weekday-text" id="weekday-text">Loading...</div>
-          <div class="date-text" id="date-text"></div>
-        </div>
-
-        <div class="glass-card gemini-card">
-          <div class="gemini-header">
-            <div class="gemini-spark">✦</div>
-            <div>
-              <div class="gemini-title">Gemini Live</div>
-              <div class="gemini-sub" id="gemini-ready-sub">Tap to start voice or video chat</div>
-            </div>
-          </div>
-
-          <div class="action-buttons">
-            <button class="action-btn btn-voice" id="start-voice-btn">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <line x1="12" y1="19" x2="12" y2="23" />
-                <line x1="8" y1="23" x2="16" y2="23" />
-              </svg>
-              <span>Voice Chat</span>
-            </button>
-            <button class="action-btn btn-video" id="start-video-btn">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="23 7 16 12 23 17 23 7" />
-                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-              </svg>
-              <span>Video Chat</span>
-            </button>
-          </div>
-
-          <div class="quick-prompts">
-            <button class="chip-btn" data-mode="voice" data-prompt="Give me a brief friendly update on today's date, time, and weather.">Weather briefing</button>
-            <button class="chip-btn" data-mode="video" data-prompt="Look through the camera and tell me what you see.">What do you see?</button>
-            <button class="chip-btn" data-mode="voice" data-prompt="Tell me one short, surprising fun fact.">Fun fact</button>
           </div>
         </div>
       </section>
