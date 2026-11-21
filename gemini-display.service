@@ -1,0 +1,15 @@
+[Unit]
+Description=Gemini Smart Display Touch WebUI
+After=network-online.target pipewire.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/andrey/gemini-display
+ExecStart=/home/andrey/gemini-display/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

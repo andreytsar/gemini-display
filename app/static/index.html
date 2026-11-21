@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="color-scheme" content="dark" />
+  <title>Gemini Smart Display</title>
+  <link rel="stylesheet" href="/static/style.css?v=3" />
+</head>
+<body>
+  <div class="ambient-bg">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+  </div>
+
+  <div class="app-shell">
+    <!-- Top Bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="status-dot" id="api-status-dot"></span>
+        <span class="city-badge" id="topbar-city">Loading...</span>
+        <span class="updated-badge" id="topbar-updated"></span>
+      </div>
+      <div class="topbar-right">
+        <div class="volume-pill">
+          <button class="icon-btn-sm" id="vol-down-btn" aria-label="Volume down">−</button>
+          <span class="vol-label" id="vol-label">🔊 --%</span>
+          <button class="icon-btn-sm" id="vol-up-btn" aria-label="Volume up">+</button>
+        </div>
+        <button class="icon-btn" id="refresh-weather-btn" aria-label="Refresh weather" title="Refresh weather">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <polyline points="21 3 21 9 15 9" />
+          </svg>
+        </button>
+        <button class="icon-btn" id="settings-btn" aria-label="Settings" title="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Dashboard View -->
+    <main class="dashboard" id="dashboard-view">
+      <!-- Left: Clock, Date, 4-Day Forecast -->
+      <section class="glass-card hero-card">
+        <div class="clock-block">
+          <div class="clock-row">
+            <span class="clock-hm" id="clock-hm">--:--</span>
+            <span class="clock-sec" id="clock-sec">--</span>
+          </div>
+          <div class="weekday-text" id="weekday-text">Loading...</div>
+          <div class="date-text" id="date-text"></div>
+        </div>
+
+        <div class="forecast-strip" id="forecast-strip">
+          <!-- Populated dynamically -->
+        </div>
+      </section>
+
+      <!-- Right: Weather + Gemini Actions -->
+      <section class="right-col">
+        <div class="glass-card weather-card">
+          <div class="weather-top">
+            <div class="weather-icon-wrap" id="weather-icon"></div>
+            <div class="weather-main">
+              <div class="temp-row">
+                <span class="temp-now" id="temp-now">--°</span>
+                <span class="temp-hl" id="temp-hl">H:--° L:--°</span>
+              </div>
+              <div class="weather-desc" id="weather-desc">Fetching weather...</div>
+            </div>
+          </div>
+          <div class="weather-metrics">
+            <div class="metric">
+              <span class="metric-label">Feels like</span>
+              <span class="metric-val" id="metric-feels">--°</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Humidity</span>
+              <span class="metric-val" id="metric-humidity">--%</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">Wind</span>
+              <span class="metric-val" id="metric-wind">-- km/h</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="glass-card gemini-card">
+          <div class="gemini-header">
+            <div class="gemini-spark">✦</div>
+            <div>
+              <div class="gemini-title">Gemini Live</div>
+              <div class="gemini-sub" id="gemini-ready-sub">Tap to start voice or video chat</div>
+            </div>
+          </div>
+
+          <div class="action-buttons">
+            <button class="action-btn btn-voice" id="start-voice-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+                <line x1="8" y1="23" x2="16" y2="23" />
+              </svg>
+              <span>Voice Chat</span>
+            </button>
+            <button class="action-btn btn-video" id="start-video-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="23 7 16 12 23 17 23 7" />
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+              </svg>
+              <span>Video Chat</span>
+            </button>
+          </div>
+
+          <div class="quick-prompts">
+            <button class="chip-btn" data-mode="voice" data-prompt="Give me a brief friendly update on today's date, time, and weather.">Weather briefing</button>
+            <button class="chip-btn" data-mode="video" data-prompt="Look through the camera and tell me what you see.">What do you see?</button>
+            <button class="chip-btn" data-mode="voice" data-prompt="Tell me one short, surprising fun fact.">Fun fact</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Active Voice / Video Call View -->
+    <section class="call-view hidden" id="call-view">
+      <div class="call-body">
+        <!-- Left Stage: Camera or Voice Orb -->
+        <div class="glass-card stage-card">
+          <div class="stage-status-pill" id="call-status-pill">
+            <span class="pulse-dot"></span>
+            <span id="call-status-text">Connecting...</span>
+          </div>
+
+          <div class="camera-stage hidden" id="camera-stage">
+            <img id="camera-feed" alt="Live camera" />
+            <div class="live-tag">● CAM LIVE</div>
+          </div>
+
+          <div class="orb-stage" id="orb-stage">
+            <div class="voice-orb" id="voice-orb">
+              <div class="voice-orb-ring ring-1"></div>
+              <div class="voice-orb-ring ring-2"></div>
+              <div class="voice-orb-core">✦</div>
+            </div>
+            <div class="orb-caption" id="orb-caption">Speak naturally — tap End anytime</div>
+          </div>
+
+          <div class="mic-meter-wrap">
+            <div class="mic-meter-bar" id="mic-meter-bar"></div>
+          </div>
+        </div>
+
+        <!-- Right Stage: Live Transcript -->
+        <div class="glass-card transcript-card">
+          <div class="transcript-header">
+            <span>Conversation</span>
+            <span class="model-tag" id="call-model-tag"></span>
+          </div>
+          <div class="transcript-list" id="transcript-list">
+            <div class="transcript-empty">Listening for your voice...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Call Controls Dock -->
+      <div class="call-dock">
+        <button class="dock-btn" id="toggle-mic-btn">
+          <svg id="mic-icon-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <line x1="12" y1="19" x2="12" y2="23" />
+          </svg>
+          <span id="toggle-mic-label">Mute</span>
+        </button>
+
+        <button class="dock-btn" id="toggle-cam-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="23 7 16 12 23 17 23 7" />
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+          </svg>
+          <span id="toggle-cam-label">Camera</span>
+        </button>
+
+        <button class="dock-btn dock-vol" id="call-vol-down">🔊 −</button>
+        <button class="dock-btn dock-vol" id="call-vol-up">🔊 +</button>
+
+        <button class="dock-btn dock-end" id="end-call-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+          <span>End Call</span>
+        </button>
+      </div>
+    </section>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-backdrop hidden" id="settings-modal">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2>Display Settings</h2>
+        <button class="icon-btn" id="close-settings-btn" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="setting-group">
+          <label>Gemini API Key <span class="badge-state" id="api-key-badge"></span></label>
+          <input type="password" id="setting-api-key" placeholder="Paste Google AI Studio API key (leave blank to keep current)" autocomplete="off" />
+        </div>
+
+        <div class="setting-group">
+          <label>Weather City</label>
+          <div class="search-row">
+            <input type="text" id="setting-city-input" placeholder="Search city (e.g. Tel Aviv, Haifa, London)" />
+            <button class="btn-secondary" id="city-search-btn">Search</button>
+          </div>
+          <div class="city-results" id="city-results"></div>
+        </div>
+
+        <div class="setting-row-2">
+          <div class="setting-group">
+            <label>Gemini Model</label>
+            <div class="pill-group" id="model-pills"></div>
+          </div>
+
+          <div class="setting-group">
+            <label>Voice</label>
+            <div class="pill-group" id="voice-pills"></div>
+          </div>
+        </div>
+
+        <div class="setting-row-2">
+          <div class="setting-group">
+            <label>Camera Rotation</label>
+            <div class="pill-group" id="rotate-pills">
+              <button class="pill-opt" data-rot="0">0°</button>
+              <button class="pill-opt" data-rot="90">90°</button>
+              <button class="pill-opt" data-rot="180">180°</button>
+              <button class="pill-opt" data-rot="270">270°</button>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <label>Camera Preview Test</label>
+            <button class="btn-secondary" id="test-cam-btn">Toggle Test Preview</button>
+            <img id="settings-cam-preview" class="settings-cam-preview hidden" alt="Camera test" />
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <span class="save-msg" id="settings-save-msg"></span>
+        <button class="btn-primary" id="save-settings-btn">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="/static/app.js?v=2"></script>
+</body>
+</html>
