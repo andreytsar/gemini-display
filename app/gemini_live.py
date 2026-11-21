@@ -52,6 +52,13 @@ async def build_system_instruction(settings: Settings, weather_service: WeatherS
             f"{cur['description']}, humidity {cur['humidity']}%, wind {cur['wind_kmh']} km/h, "
             f"today's range {cur['temp_min']}°C to {cur['temp_max']}°C."
         )
+        astro = w.get("astronomy")
+        if astro:
+            context_lines.append(
+                f"Sun today: sunrise {astro['sunrise']}, sunset {astro['sunset']} (daylight {astro['daylight']}). "
+                f"Moon today: {astro['moon_phase_name']} ({astro['moon_illumination']}% illuminated), "
+                f"moonrise {astro['moonrise']}, moonset {astro['moonset']}."
+            )
     except Exception:
         pass
     return "\n".join(context_lines)

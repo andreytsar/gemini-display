@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
+
 import httpx
+from astral import Observer
+from astral.moon import moonrise, moonset, phase as moon_phase
+from astral.sun import sun
 
 WMO_CODES: dict[int, tuple[str, str]] = {
     0: ("Clear sky", "clear"),
@@ -36,6 +42,86 @@ WMO_CODES: dict[int, tuple[str, str]] = {
     96: ("Thunderstorm & hail", "storm"),
     99: ("Severe thunderstorm", "storm"),
 }
+
+
+def _moon_phase_name(phase_val: float) -> str:
+    # astral.moon.phase returns 0..27.99 (0=New, 7=First Quarter, 14=Full, 21=Last Quarter)
+    p = phase_val % 28.0
+    if p < 1.2 or p >= 26.8:
+        return "New Moon"
+    if p < 6.0:
+        return "Waxing Crescent"
+    if p < 8.2:
+        return "First Quarter"
+    if p < 13.0:
+        return "Waxing Gibbous"
+    if p < 15.2:
+        return "Full Moon"
+    if p < 20.0:
+        return "Waning Gibbous"
+    if p < 22.2:
+        return "Last Quarter"
+    return "Waning Crescent"
+
+
+def compute_astronomy(lat: float, lon: float, tz_name: str | None = None) -> dict[str, Any]:
+    try:
+        tz = ZoneInfo(tz_name) if tz_name else datetime.now().astimezone().tzinfo
+    except Exception:
+        tz = datetime.now().astimezone().tzinfo
+
+    now = datetime.now(tz)
+    today = now.date()
+    obs = Observer(latitude=lat, longitude=lon)
+
+    sunrise_str = "--:--"
+    sunset_str = "--:--"
+    daylight_str = ""
+    try:
+        s = sun(obs, date=today, tzinfo=tz)
+        sr = s.get("sunrise")
+        ss = s.get("sunset")
+        if sr:
+            sunrise_str = sr.strftime("%H:%M")
+        if ss:
+            sunset_str = ss.strftime("%H:%M")
+        if sr and ss and ss > sr:
+            mins = int((ss - sr).total_seconds() // 60)
+            daylight_str = f"{mins // 60}h {mins % 60:02d}m"
+    except Exception:
+        pass
+
+    moonrise_str = "--:--"
+    try:
+        mr = moonrise(obs, date=today, tzinfo=tz)
+        if mr:
+            moonrise_str = mr.strftime("%H:%M")
+    except Exception:
+        pass
+
+    moonset_str = "--:--"
+    try:
+        ms = moonset(obs, date=today, tzinfo=tz)
+        if ms:
+            moonset_str = ms.strftime("%H:%M")
+    except Exception:
+        pass
+
+    ph = float(moon_phase(today))
+    frac = (ph % 28.0) / 28.0
+    illum = int(round((1.0 - math.cos(frac * 2.0 * math.pi)) * 50.0))
+
+    return {
+        "sunrise": sunrise_str,
+        "sunset": sunset_str,
+        "daylight": daylight_str,
+        "moonrise": moonrise_str,
+        "moonset": moonset_str,
+        "moon_phase_value": round(ph, 2),
+        "moon_phase_frac": round(frac, 4),
+        "moon_phase_name": _moon_phase_name(ph),
+        "moon_illumination": illum,
+    }
 
 
 class WeatherService:
@@ -119,6 +205,8 @@ class WeatherService:
                 "precip_prob": int(pops[i]) if i < len(pops) and pops[i] is not None else 0,
             })
 
+        astro = compute_astronomy(lat, lon, raw.get("timezone"))
+
         result = {
             "city": city,
             "lat": lat,
@@ -137,6 +225,7 @@ class WeatherService:
                 "temp_min": forecast[0]["temp_min"] if forecast else None,
             },
             "forecast": forecast[1:5],
+            "astronomy": astro,
         }
 
         self._cache = result

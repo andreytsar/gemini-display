@@ -61,6 +61,32 @@
   updateClock();
   setInterval(updateClock, 1000);
 
+  // --- Dynamic SVG Moon Phase ---
+  function moonPhaseSvg(frac) {
+    // frac: 0 = New Moon, 0.25 = First Quarter, 0.5 = Full Moon, 0.75 = Last Quarter
+    const p = ((frac % 1) + 1) % 1;
+    const r = 12;
+    const cx = 14;
+    const cy = 14;
+    const base = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#1e293b" stroke="#64748b" stroke-width="1.2"/>`;
+    if (p < 0.02 || p > 0.98) {
+      return `<svg viewBox="0 0 28 28">${base}</svg>`;
+    }
+    if (p > 0.48 && p < 0.52) {
+      return `<svg viewBox="0 0 28 28">${base}<circle cx="${cx}" cy="${cy}" r="${r}" fill="#fde68a"/></svg>`;
+    }
+    const waxing = p < 0.5;
+    const phaseAngle = p * 2 * Math.PI;
+    const rx = Math.abs(Math.cos(phaseAngle)) * r;
+    // Outer limb sweep: right side for waxing, left side for waning
+    const outerSweep = waxing ? 1 : 0;
+    // Inner terminator sweep depends on crescent vs gibbous
+    const gibbous = p > 0.25 && p < 0.75;
+    const innerSweep = waxing ? (gibbous ? 1 : 0) : (gibbous ? 0 : 1);
+    const d = `M ${cx} ${cy - r} A ${r} ${r} 0 0 ${outerSweep} ${cx} ${cy + r} A ${rx.toFixed(2)} ${r} 0 0 ${innerSweep} ${cx} ${cy - r} Z`;
+    return `<svg viewBox="0 0 28 28">${base}<path d="${d}" fill="#fde68a"/></svg>`;
+  }
+
   // --- Weather ---
   let weatherRetryTimer = null;
   async function loadWeather(force = false) {
@@ -95,6 +121,18 @@
         `;
         strip.appendChild(div);
       });
+
+      if (w.astronomy) {
+        const a = w.astronomy;
+        $("sun-sunrise").textContent = a.sunrise || "--:--";
+        $("sun-sunset").textContent = a.sunset || "--:--";
+        $("sun-daylight").textContent = a.daylight ? `Daylight ${a.daylight}` : "";
+        $("moon-svg").innerHTML = moonPhaseSvg(a.moon_phase_frac ?? 0);
+        $("moon-phase-name").textContent = a.moon_phase_name || "Moon";
+        $("moon-illum").textContent = `${a.moon_illumination ?? "--"}% illuminated`;
+        $("moon-rise").textContent = a.moonrise || "--:--";
+        $("moon-set").textContent = a.moonset || "--:--";
+      }
     } catch (err) {
       $("weather-desc").textContent = "Retrying weather...";
       weatherRetryTimer = setTimeout(() => loadWeather(false), 15000);

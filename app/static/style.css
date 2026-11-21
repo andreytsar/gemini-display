@@ -200,16 +200,17 @@ html, body {
 }
 
 .hero-card {
-  padding: 24px 26px 18px;
+  padding: 18px 22px 16px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  gap: 12px;
 }
 
 .clock-block {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .clock-row {
@@ -219,9 +220,9 @@ html, body {
 }
 
 .clock-hm {
-  font-size: 118px;
+  font-size: 102px;
   font-weight: 700;
-  line-height: 0.96;
+  line-height: 0.94;
   letter-spacing: -4px;
   font-variant-numeric: tabular-nums;
   color: #ffffff;
@@ -229,21 +230,21 @@ html, body {
 }
 
 .clock-sec {
-  font-size: 38px;
+  font-size: 34px;
   font-weight: 600;
   color: #7dd3fc;
   font-variant-numeric: tabular-nums;
 }
 
 .weekday-text {
-  font-size: 36px;
+  font-size: 30px;
   font-weight: 700;
   color: #f8fafc;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .date-text {
-  font-size: 22px;
+  font-size: 19px;
   font-weight: 500;
   color: #cbd5e1;
 }
@@ -252,29 +253,28 @@ html, body {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 10px;
-  margin-top: 14px;
 }
 
 .forecast-day {
   background: rgba(255, 255, 255, 0.045);
   border: 1px solid rgba(148, 163, 184, 0.12);
   border-radius: 16px;
-  padding: 10px 8px;
+  padding: 8px 6px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
 
 .f-day {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   color: #cbd5e1;
 }
 
 .f-icon {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
 }
 
 .f-temps {
@@ -291,6 +291,95 @@ html, body {
 .f-pop {
   font-size: 12px;
   color: var(--accent-blue);
+}
+
+/* Sun & Moon Astronomy Section */
+.astro-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.astro-card {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 16px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.astro-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.astro-icon {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+}
+
+.astro-icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.sun-icon {
+  color: #fbbf24;
+}
+
+.astro-title-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.astro-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.astro-sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.astro-times {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+  padding-top: 7px;
+}
+
+.astro-time-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.astro-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.astro-val {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f8fafc;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Right Column */
