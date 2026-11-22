@@ -13,11 +13,139 @@ from google.genai import types
 
 from .camera import CameraManager
 from .config import Settings
+from .samsung_tv import SamsungTVController
 from .weather import WeatherService
 
 logger = logging.getLogger(__name__)
 
 ALLOWED_LANGUAGES = ["en-US", "he-IL", "ru-RU"]
+
+
+def build_tv_tools() -> list[types.Tool]:
+    return [
+        types.Tool(
+            function_declarations=[
+                types.FunctionDeclaration(
+                    name="tv_status",
+                    description="Check whether the user's Samsung Smart TV is currently on or in standby.",
+                    parameters=types.Schema(type=types.Type.OBJECT, properties={}),
+                ),
+                types.FunctionDeclaration(
+                    name="tv_power",
+                    description="Turn the user's Samsung Smart TV on or off (standby).",
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "action": types.Schema(
+                                type=types.Type.STRING,
+                                enum=["on", "off"],
+                                description="Whether to turn the TV 'on' or 'off'.",
+                            )
+                        },
+                        required=["action"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="tv_volume",
+                    description="Adjust the Samsung Smart TV volume up/down or toggle mute.",
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "action": types.Schema(
+                                type=types.Type.STRING,
+                                enum=["up", "down", "mute"],
+                                description="Volume action: 'up', 'down', or 'mute'.",
+                            ),
+                            "steps": types.Schema(
+                                type=types.Type.INTEGER,
+                                description="Number of volume steps (1 to 15, default 3). Ignored for mute.",
+                            ),
+                        },
+                        required=["action"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="tv_control",
+                    description=(
+                        "Send playback, navigation, channel, or input source commands to the Samsung Smart TV "
+                        "(play, pause, stop, rewind, fast_forward, home, back, enter, up, down, left, right, "
+                        "channel_up, channel_down, source, hdmi1, hdmi2, hdmi3, hdmi4, ambient, menu, guide)."
+                    ),
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "action": types.Schema(
+                                type=types.Type.STRING,
+                                description="Remote control action name.",
+                            )
+                        },
+                        required=["action"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="tv_open_app",
+                    description=(
+                        "Launch an app on the Samsung Smart TV by name (e.g., YouTube, Netflix, Spotify, "
+                        "Prime Video, Disney+, Apple TV, Plex, Browser). Wakes the TV automatically if off."
+                    ),
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "app_name": types.Schema(
+                                type=types.Type.STRING,
+                                description="Name of the app to open on the TV.",
+                            )
+                        },
+                        required=["app_name"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="tv_open_url",
+                    description="Open a web page URL in the Samsung Smart TV's built-in Internet browser.",
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "url": types.Schema(
+                                type=types.Type.STRING,
+                                description="Full URL to open on the TV browser.",
+                            )
+                        },
+                        required=["url"],
+                    ),
+                ),
+            ]
+        )
+    ]
+
+
+def _execute_tv_tool(tv: SamsungTVController, name: str, args: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    if name == "tv_status":
+        res = tv.get_status()
+        state = res.get("power_state", "unknown")
+        return res, f"TV status: {state}"
+    if name == "tv_power":
+        act = str(args.get("action", "")).lower()
+        res = tv.power(act)
+        return res, f"TV power: {act}"
+    if name == "tv_volume":
+        act = str(args.get("action", "")).lower()
+        steps = int(args.get("steps", 3) or 3)
+        res = tv.volume(act, steps=steps)
+        label = "TV mute" if act == "mute" else f"TV volume {act} (×{steps})"
+        return res, label
+    if name == "tv_control":
+        act = str(args.get("action", ""))
+        res = tv.control(act)
+        return res, f"TV: {act}"
+    if name == "tv_open_app":
+        app_name = str(args.get("app_name", ""))
+        res = tv.open_app(app_name)
+        return res, f"TV app: {res.get('app', app_name)}"
+    if name == "tv_open_url":
+        url = str(args.get("url", ""))
+        res = tv.open_url(url)
+        return res, f"TV browser: {url}"
+    return {"ok": False, "error": f"Unknown tool: {name}"}, f"Unknown tool: {name}"
 
 # Matches any letter outside Basic/Extended Latin, Hebrew, and Cyrillic
 _DISALLOWED_SCRIPT_RE = re.compile(
@@ -33,7 +161,11 @@ def _is_allowed_transcript(text: str) -> bool:
     return disallowed == 0
 
 
-async def build_system_instruction(settings: Settings, weather_service: WeatherService) -> str:
+async def build_system_instruction(
+    settings: Settings,
+    weather_service: WeatherService,
+    tv: SamsungTVController | None = None,
+) -> str:
     now = datetime.now()
     context_lines = [
         settings.system_prompt,
@@ -44,6 +176,13 @@ async def build_system_instruction(settings: Settings, weather_service: WeatherS
         f"Current local date and time: {now.strftime('%A, %d %B %Y, %H:%M')}.",
         f"Location: {settings.weather_city}.",
     ]
+    if tv and tv.configured:
+        context_lines.append(
+            "Smart Home TV Control: You are connected to the user's Samsung Smart TV (Samsung QN90BA 55). "
+            "Whenever the user asks (in English, Hebrew, or Russian) to turn the TV on/off, change volume, mute, "
+            "pause/play, navigate, change channels/HDMI, open YouTube/Netflix/Spotify/apps, or open a URL on the TV, "
+            "immediately invoke the appropriate tv_* tool and give a short natural confirmation in the user's language."
+        )
     try:
         w = await weather_service.get_weather(settings.weather_lat, settings.weather_lon, settings.weather_city)
         cur = w["current"]
@@ -69,6 +208,7 @@ async def handle_live_websocket(
     settings: Settings,
     camera: CameraManager,
     weather_service: WeatherService,
+    tv: SamsungTVController | None = None,
 ) -> None:
     await ws.accept()
 
@@ -112,14 +252,14 @@ async def handle_live_websocket(
     video_flag = {"enabled": video_enabled}
 
     try:
-        system_instruction = await build_system_instruction(settings, weather_service)
+        system_instruction = await build_system_instruction(settings, weather_service, tv)
 
         client = genai.Client(
             api_key=settings.gemini_api_key,
             http_options={"api_version": "v1beta"},
         )
 
-        config = types.LiveConnectConfig(
+        config_kwargs: dict[str, Any] = dict(
             response_modalities=["AUDIO"],
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
@@ -138,6 +278,10 @@ async def handle_live_websocket(
                 parts=[types.Part(text=system_instruction)]
             ),
         )
+        if tv and tv.configured:
+            config_kwargs["tools"] = build_tv_tools()
+
+        config = types.LiveConnectConfig(**config_kwargs)
 
         async with client.aio.live.connect(model=settings.gemini_model, config=config) as session:
             await send_json({"type": "status", "state": "connected", "message": "Listening..."})
@@ -208,6 +352,31 @@ async def handle_live_websocket(
                         async for response in session.receive():
                             if stop_event.is_set():
                                 break
+
+                            # Handle Gemini Live function calls (e.g. Samsung TV voice commands)
+                            if response.tool_call and response.tool_call.function_calls and tv:
+                                fn_responses: list[types.FunctionResponse] = []
+                                for fc in response.tool_call.function_calls:
+                                    fn_name = fc.name or ""
+                                    fn_args = dict(fc.args or {})
+                                    logger.info("Gemini tool_call: %s(%s)", fn_name, fn_args)
+                                    result, label = await asyncio.to_thread(_execute_tv_tool, tv, fn_name, fn_args)
+                                    ok = bool(result.get("ok"))
+                                    await send_json({
+                                        "type": "tool",
+                                        "ok": ok,
+                                        "text": f"📺 {label}" + ("" if ok else f" ({result.get('error', 'failed')})"),
+                                    })
+                                    fn_responses.append(
+                                        types.FunctionResponse(
+                                            id=fc.id,
+                                            name=fn_name,
+                                            response=result,
+                                        )
+                                    )
+                                if fn_responses and not stop_event.is_set():
+                                    await session.send_tool_response(function_responses=fn_responses)
+
                             sc = response.server_content
                             if sc is None:
                                 continue

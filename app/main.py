@@ -15,8 +15,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .camera import CameraManager
-from .config import AVAILABLE_MODELS, AVAILABLE_VOICES, load_settings, save_settings
+from .config import AVAILABLE_MODELS, AVAILABLE_VOICES, BASE_DIR, load_settings, save_settings
 from .gemini_live import handle_live_websocket
+from .samsung_tv import SamsungTVController
 from .weather import WeatherService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -31,6 +32,11 @@ camera_manager = CameraManager(
     get_hflip=lambda: settings.camera_hflip,
     fps=8.0,
     jpeg_quality=68,
+)
+tv_controller = SamsungTVController(
+    host=settings.samsung_tv_ip,
+    mac=settings.samsung_tv_mac,
+    token_file=BASE_DIR / "tv_token.txt",
 )
 
 
@@ -238,6 +244,11 @@ async def api_camera_snapshot() -> Response:
     return Response(content=jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/tv/status")
+async def api_tv_status() -> dict[str, Any]:
+    return await asyncio.to_thread(tv_controller.get_status)
+
+
 @app.websocket("/ws/live")
 async def ws_live(ws: WebSocket) -> None:
-    await handle_live_websocket(ws, settings, camera_manager, weather_service)
+    await handle_live_websocket(ws, settings, camera_manager, weather_service, tv_controller)

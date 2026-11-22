@@ -42,6 +42,8 @@ class Settings:
     weather_lon: float = 34.7818
     camera_rotate: int = 0
     camera_hflip: bool = True
+    samsung_tv_ip: str = "10.0.0.2"
+    samsung_tv_mac: str = "80:8A:BD:32:F1:76"
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
 
     def to_public_dict(self) -> dict:
@@ -54,6 +56,8 @@ class Settings:
             "weather_lon": self.weather_lon,
             "camera_rotate": self.camera_rotate,
             "camera_hflip": self.camera_hflip,
+            "samsung_tv_ip": self.samsung_tv_ip,
+            "samsung_tv_mac": self.samsung_tv_mac,
             "system_prompt": self.system_prompt,
             "available_models": AVAILABLE_MODELS,
             "available_voices": AVAILABLE_VOICES,
@@ -99,6 +103,8 @@ def load_settings() -> Settings:
         weather_lon=get_float("WEATHER_LON", 34.7818),
         camera_rotate=rotate,
         camera_hflip=hflip,
+        samsung_tv_ip=get("SAMSUNG_TV_IP", "10.0.0.2").strip(),
+        samsung_tv_mac=get("SAMSUNG_TV_MAC", "80:8A:BD:32:F1:76").strip(),
         system_prompt=get("SYSTEM_PROMPT", DEFAULT_SYSTEM_PROMPT).strip() or DEFAULT_SYSTEM_PROMPT,
     )
 
@@ -113,6 +119,8 @@ def save_settings(s: Settings) -> None:
         f"WEATHER_LON={s.weather_lon}",
         f"CAMERA_ROTATE={s.camera_rotate}",
         f"CAMERA_HFLIP={'true' if s.camera_hflip else 'false'}",
+        f"SAMSUNG_TV_IP={s.samsung_tv_ip}",
+        f"SAMSUNG_TV_MAC={s.samsung_tv_mac}",
         f"SYSTEM_PROMPT={s.system_prompt.replace(chr(10), ' ')}",
     ]
     ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")

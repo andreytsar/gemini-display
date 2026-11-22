@@ -532,6 +532,8 @@
           }
         } else if (msg.type === "transcript") {
           appendTranscript(msg.role, msg.text, !!msg.final);
+        } else if (msg.type === "tool") {
+          appendTranscript("tool", msg.text, true);
         } else if (msg.type === "interrupted") {
           flushPlayback();
           lastRole = null;

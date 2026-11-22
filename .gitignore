@@ -1,4 +1,5 @@
 .env
+tv_token.txt
 .venv/
 __pycache__/
 *.py[cod]
