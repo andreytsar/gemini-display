@@ -136,23 +136,114 @@ class SamsungTVController:
                 "note": str(exc),
             }
 
+    def _broadcast_ip(self) -> str | None:
+        parts = self.host.split(".")
+        if len(parts) == 4 and all(p.isdigit() for p in parts):
+            return f"{parts[0]}.{parts[1]}.{parts[2]}.255"
+        return None
+
+    def _send_wol(self, repeats: int = 2) -> None:
+        if not self.mac:
+            return
+        targets: list[str] = []
+        bcast = self._broadcast_ip()
+        if bcast:
+            targets.append(bcast)
+        if self.host:
+            targets.append(self.host)
+        targets.append("255.255.255.255")
+
+        for _ in range(repeats):
+            for target in targets:
+                for port in (9, 7):
+                    try:
+                        send_magic_packet(self.mac, ip_address=target, port=port)
+                    except Exception as exc:
+                        logger.debug("WoL packet to %s:%d failed: %s", target, port, exc)
+            time.sleep(0.15)
+
+    def _wake_tv(self) -> dict[str, Any]:
+        st = self.get_status()
+        cur = st.get("power_state", "unknown")
+        reachable = bool(st.get("reachable", False))
+
+        if cur == "on":
+            return {"ok": True, "message": "The Samsung TV is already on.", "power_state": "on"}
+
+        # Warm standby: WSS port 8002 stays open and KEY_POWER wakes the TV immediately
+        if reachable and cur == "standby":
+            res = self.send_key("KEY_POWER")
+            if res.get("ok"):
+                for _ in range(4):
+                    time.sleep(0.75)
+                    new_state = self.get_status().get("power_state", "unknown")
+                    if new_state == "on":
+                        return {
+                            "ok": True,
+                            "message": "Turned on the Samsung TV.",
+                            "power_state": "on",
+                        }
+                # Fallback WoL if TV stayed in standby after KEY_POWER
+                if self.mac:
+                    self._send_wol(repeats=2)
+                    time.sleep(1.5)
+                    new_state = self.get_status().get("power_state", "unknown")
+                    if new_state == "on":
+                        return {
+                            "ok": True,
+                            "message": "Turned on the Samsung TV.",
+                            "power_state": "on",
+                        }
+                return {
+                    "ok": True,
+                    "message": "Sent power-on command to the Samsung TV.",
+                    "power_state": "waking",
+                }
+            # If WSS failed in standby, fall through to WoL
+
+        # Deep sleep / unreachable: send Wake-on-LAN across subnet broadcast + unicast
+        if self.mac:
+            self._send_wol(repeats=3)
+            for _ in range(5):
+                time.sleep(0.8)
+                st2 = self.get_status()
+                if st2.get("power_state") == "on":
+                    return {
+                        "ok": True,
+                        "message": "Turned on the Samsung TV via Wake-on-LAN.",
+                        "power_state": "on",
+                    }
+                if st2.get("reachable") and st2.get("power_state") == "standby":
+                    res = self.send_key("KEY_POWER")
+                    if res.get("ok"):
+                        time.sleep(1.5)
+                        return {
+                            "ok": True,
+                            "message": "Turned on the Samsung TV.",
+                            "power_state": self.get_status().get("power_state", "on"),
+                        }
+                    break
+            return {
+                "ok": False,
+                "error": (
+                    "Sent Wake-on-LAN, but the Samsung TV did not respond from deep sleep. "
+                    "Make sure 'Power On with Mobile' is enabled in TV Network Expert Settings."
+                ),
+                "power_state": "off",
+            }
+
+        return self.send_key("KEY_POWER")
+
     def power(self, action: str) -> dict[str, Any]:
         act = (action or "").strip().lower()
         if act not in ("on", "off", "toggle"):
             return {"ok": False, "error": f"Invalid power action: {action}"}
 
+        if act == "on":
+            return self._wake_tv()
+
         st = self.get_status()
         cur = st.get("power_state", "unknown")
-
-        if act == "on":
-            if cur == "on":
-                return {"ok": True, "message": "The Samsung TV is already on.", "power_state": "on"}
-            if self.mac:
-                for _ in range(3):
-                    send_magic_packet(self.mac)
-                    time.sleep(0.15)
-                return {"ok": True, "message": "Turned on the Samsung TV via Wake-on-LAN.", "power_state": "waking"}
-            return self.send_key("KEY_POWER")
 
         if act == "off":
             if cur in ("standby", "off"):
@@ -250,13 +341,12 @@ class SamsungTVController:
                     "error": f"Unknown app '{app_name}'. Known apps: YouTube, Netflix, Spotify, Prime Video, Disney+, Apple TV, Plex, Browser.",
                 }
 
-        # Wake TV if currently in standby
+        # Wake TV if currently in standby or deep sleep
         st = self.get_status()
-        if st.get("power_state") in ("standby", "off") and self.mac:
-            for _ in range(2):
-                send_magic_packet(self.mac)
-                time.sleep(0.15)
-            time.sleep(2.5)
+        if st.get("power_state") in ("standby", "off"):
+            wake_res = self._wake_tv()
+            if wake_res.get("ok"):
+                time.sleep(2.0)
 
         # Try REST launch first (fast and reliable on 2022 Tizen), fallback to WSS run_app
         try:
@@ -288,6 +378,13 @@ class SamsungTVController:
             return {"ok": False, "error": "URL is required"}
         if not u.startswith(("http://", "https://")):
             u = "https://" + u
+
+        # Wake TV if currently in standby or deep sleep
+        st = self.get_status()
+        if st.get("power_state") in ("standby", "off"):
+            wake_res = self._wake_tv()
+            if wake_res.get("ok"):
+                time.sleep(2.0)
 
         with self._lock:
             tv = None
