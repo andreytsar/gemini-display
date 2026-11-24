@@ -161,14 +161,28 @@
   }
 
   // --- Settings ---
+  const FEMALE_VOICES = new Set(["Aoede", "Kore", "Zephyr"]);
+
+  function personaDisplayName() {
+    return (appSettings && appSettings.persona_display_name) || "S.A.R.A.H.";
+  }
+
+  function personaShortName() {
+    return (appSettings && appSettings.persona_short_name) || "Sarah";
+  }
+
   async function loadSettings() {
     try {
       const r = await fetch("/api/settings");
       appSettings = await r.json();
       const dot = $("api-status-dot");
+      const displayName = personaDisplayName();
+      $("gemini-title").textContent = displayName;
+      document.title = `${displayName} Smart Display`;
       if (appSettings.api_key_set) {
         dot.className = "status-dot ready";
-        $("gemini-ready-sub").textContent = `${appSettings.gemini_voice} · EN / עב / RU`;
+        const prefix = appSettings.persona_subtitle ? `${appSettings.persona_subtitle} · ` : "";
+        $("gemini-ready-sub").textContent = `${prefix}${appSettings.gemini_voice} · EN / עב / RU`;
       } else {
         dot.className = "status-dot warn";
         $("gemini-ready-sub").textContent = "Tap Settings (⚙) to add your Gemini API key";
@@ -222,6 +236,46 @@
       };
       vp.appendChild(b);
     });
+
+    const pp = $("persona-pills");
+    const promptEl = $("setting-system-prompt");
+    pp.innerHTML = "";
+    const personas = appSettings.available_personas || [];
+    promptEl.value = appSettings.system_prompt || "";
+
+    const selectPersonaPill = (pid) => {
+      pp.querySelectorAll(".pill-opt").forEach((x) => {
+        x.classList.toggle("selected", x.dataset.persona === pid);
+      });
+    };
+
+    personas.forEach((p) => {
+      const b = document.createElement("button");
+      b.className = "pill-opt" + (p.id === appSettings.persona ? " selected" : "");
+      b.textContent = p.label;
+      b.dataset.persona = p.id;
+      b.onclick = () => {
+        selectPersonaPill(p.id);
+        if (p.prompt) {
+          promptEl.value = p.prompt;
+        }
+        if (p.id === "sarah") {
+          const curVoice = vp.querySelector(".selected")?.dataset.voice;
+          if (!FEMALE_VOICES.has(curVoice)) {
+            vp.querySelectorAll(".pill-opt").forEach((x) => {
+              x.classList.toggle("selected", x.dataset.voice === (p.recommended_voice || "Aoede"));
+            });
+          }
+        }
+      };
+      pp.appendChild(b);
+    });
+
+    promptEl.oninput = () => {
+      const val = promptEl.value.trim().replace(/\s+/g, " ");
+      const match = personas.find((p) => p.prompt && p.prompt.trim().replace(/\s+/g, " ") === val);
+      selectPersonaPill(match ? match.id : "custom");
+    };
 
     document.querySelectorAll("#rotate-pills .pill-opt[data-rot]").forEach((b) => {
       b.classList.toggle("selected", Number(b.dataset.rot) === Number(appSettings.camera_rotate));
@@ -280,6 +334,8 @@
   async function saveSettings() {
     const selModel = $("model-pills").querySelector(".selected")?.dataset.model;
     const selVoice = $("voice-pills").querySelector(".selected")?.dataset.voice;
+    const selPersona = $("persona-pills").querySelector(".selected")?.dataset.persona;
+    const selPrompt = $("setting-system-prompt").value.trim();
     const selRot = $("rotate-pills").querySelector(".selected[data-rot]")?.dataset.rot;
     const selHflip = $("hflip-pill")?.classList.contains("selected");
     const apiKey = $("setting-api-key").value.trim();
@@ -287,9 +343,11 @@
     const payload = {
       gemini_model: selModel,
       gemini_voice: selVoice,
+      persona: selPersona,
       camera_rotate: selRot !== undefined ? Number(selRot) : undefined,
       camera_hflip: selHflip,
     };
+    if (selPrompt) payload.system_prompt = selPrompt;
     if (apiKey) payload.gemini_api_key = apiKey;
     const typedCity = $("setting-city-input").value.trim();
     if (pendingCity && pendingCity.name.toLowerCase() === typedCity.toLowerCase()) {
@@ -342,7 +400,7 @@
     if (speaking) {
       pill.classList.add("speaking");
       orb.classList.add("speaking");
-      $("call-status-text").textContent = "Gemini Speaking";
+      $("call-status-text").textContent = `${personaShortName()} Speaking`;
     } else {
       pill.classList.remove("speaking");
       orb.classList.remove("speaking");
@@ -355,7 +413,7 @@
   // --- Transcript UI ---
   function clearTranscript() {
     const list = $("transcript-list");
-    list.innerHTML = `<div class="transcript-empty">Listening for your voice...</div>`;
+    list.innerHTML = `<div class="transcript-empty">${personaShortName()} is listening...</div>`;
     lastRole = null;
     lastBubbleEl = null;
   }
@@ -511,7 +569,7 @@
     ws.binaryType = "arraybuffer";
 
     ws.onopen = () => {
-      $("call-status-text").textContent = "Connecting to Gemini...";
+      $("call-status-text").textContent = `Connecting to ${personaShortName()}...`;
       ws.send(JSON.stringify({ type: "start", video: withVideo, prompt: initialPrompt }));
     };
 

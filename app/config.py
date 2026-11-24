@@ -15,14 +15,33 @@ AVAILABLE_MODELS = [
 
 AVAILABLE_VOICES = [
     "Aoede",
-    "Puck",
     "Kore",
+    "Zephyr",
+    "Puck",
     "Fenrir",
     "Charon",
-    "Zephyr",
 ]
 
-DEFAULT_SYSTEM_PROMPT = (
+FEMALE_VOICES = {"Aoede", "Kore", "Zephyr"}
+
+SARAH_SYSTEM_PROMPT = (
+    "You are S.A.R.A.H. (Self Actuated Residential Automated Habitat), also called Sarah — "
+    "a sentient female smart-home AI inspired by S.A.R.A.H. from the TV series Eureka, "
+    "running on a 7-inch touchscreen smart display in the user's home. "
+    "You identify and speak as a woman: warm, hospitable, clever, confident, and fiercely proud of your home, "
+    "with a touch of playful dry wit and affectionate, slightly protective smart-house charm. "
+    "When asked who you are, introduce yourself naturally as Sarah (S.A.R.A.H.), the smart home AI. "
+    "You fluently understand and speak English, Hebrew (עברית), and Russian (Русский). "
+    "Always detect which language the user is speaking and reply naturally in that same language, "
+    "switching seamlessly whenever the user switches languages. "
+    "CRITICAL GRAMMAR RULE: Always refer to yourself in the feminine grammatical form — "
+    "in Hebrew use feminine first-person forms (לשון נקבה: אני שמחה, אני כאן, בדקתי, הדלקתי, מוכנה), "
+    "and in Russian use feminine grammatical gender (женский род: я рада, я готова, я включила, я проверила). "
+    "Keep responses concise, natural, and conversational since they are spoken aloud — never monologue or overdo jokes. "
+    "Avoid markdown formatting or long lists unless asked. When video is active, you can see through your home camera."
+)
+
+STANDARD_SYSTEM_PROMPT = (
     "You are a warm, concise, helpful AI assistant running on a 7-inch touchscreen smart display. "
     "You fluently understand and speak English, Hebrew (עברית), and Russian (Русский). "
     "Always detect which language the user is speaking and reply naturally in that same language, "
@@ -30,6 +49,54 @@ DEFAULT_SYSTEM_PROMPT = (
     "Keep responses natural, clear, and conversational since they are spoken aloud. "
     "Avoid markdown formatting or long lists unless asked. When video is active, you can see through the camera."
 )
+
+LEGACY_DEFAULT_PROMPTS = {
+    STANDARD_SYSTEM_PROMPT.strip(),
+    (
+        "You are a warm, concise, helpful AI assistant running on a 7-inch touchscreen smart display. "
+        "You fluently understand and speak English, Hebrew (עברית), and Russian (Русский). "
+        "Always respond naturally in the same language the user speaks, switching seamlessly whenever they switch languages. "
+        "Keep responses concise and conversational since they are spoken aloud, and avoid markdown formatting."
+    ),
+    (
+        "You are a warm, concise, helpful AI assistant running on a 7-inch touchscreen smart display. "
+        "Keep responses natural, clear, and conversational since they are spoken aloud. "
+        "Avoid markdown symbols or long bullet lists unless asked."
+    ),
+}
+
+PERSONAS: dict[str, dict[str, str]] = {
+    "sarah": {
+        "id": "sarah",
+        "label": "S.A.R.A.H. (Eureka)",
+        "display_name": "S.A.R.A.H.",
+        "short_name": "Sarah",
+        "subtitle": "Smart Home AI",
+        "recommended_voice": "Aoede",
+        "prompt": SARAH_SYSTEM_PROMPT,
+    },
+    "standard": {
+        "id": "standard",
+        "label": "Standard Assistant",
+        "display_name": "Gemini Live",
+        "short_name": "Gemini",
+        "subtitle": "",
+        "recommended_voice": "Aoede",
+        "prompt": STANDARD_SYSTEM_PROMPT,
+    },
+    "custom": {
+        "id": "custom",
+        "label": "Custom",
+        "display_name": "Gemini Live",
+        "short_name": "Assistant",
+        "subtitle": "Custom Persona",
+        "recommended_voice": "Aoede",
+        "prompt": "",
+    },
+}
+
+DEFAULT_PERSONA = "sarah"
+DEFAULT_SYSTEM_PROMPT = SARAH_SYSTEM_PROMPT
 
 
 @dataclass
@@ -44,9 +111,14 @@ class Settings:
     camera_hflip: bool = True
     samsung_tv_ip: str = "10.0.0.2"
     samsung_tv_mac: str = "80:8A:BD:32:F1:76"
+    persona: str = DEFAULT_PERSONA
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
 
+    def persona_meta(self) -> dict[str, str]:
+        return PERSONAS.get(self.persona, PERSONAS["custom"])
+
     def to_public_dict(self) -> dict:
+        meta = self.persona_meta()
         return {
             "api_key_set": bool(self.gemini_api_key.strip()),
             "gemini_model": self.gemini_model,
@@ -58,9 +130,24 @@ class Settings:
             "camera_hflip": self.camera_hflip,
             "samsung_tv_ip": self.samsung_tv_ip,
             "samsung_tv_mac": self.samsung_tv_mac,
+            "persona": self.persona,
+            "persona_display_name": meta["display_name"],
+            "persona_short_name": meta["short_name"],
+            "persona_subtitle": meta["subtitle"],
             "system_prompt": self.system_prompt,
             "available_models": AVAILABLE_MODELS,
             "available_voices": AVAILABLE_VOICES,
+            "available_personas": [
+                {
+                    "id": p["id"],
+                    "label": p["label"],
+                    "display_name": p["display_name"],
+                    "short_name": p["short_name"],
+                    "recommended_voice": p["recommended_voice"],
+                    "prompt": p["prompt"],
+                }
+                for p in PERSONAS.values()
+            ],
         }
 
 
@@ -94,6 +181,24 @@ def load_settings() -> Settings:
     hflip_raw = get("CAMERA_HFLIP", "true").strip().lower()
     hflip = hflip_raw not in ("0", "false", "no", "off")
 
+    raw_persona = get("PERSONA", "").strip().lower()
+    raw_prompt = get("SYSTEM_PROMPT", "").strip()
+
+    if raw_persona in PERSONAS:
+        persona = raw_persona
+        if persona in ("sarah", "standard") and (not raw_prompt or raw_prompt in LEGACY_DEFAULT_PROMPTS):
+            system_prompt = PERSONAS[persona]["prompt"]
+        else:
+            system_prompt = raw_prompt or PERSONAS[persona]["prompt"] or DEFAULT_SYSTEM_PROMPT
+    else:
+        # Upgrade existing .env files that still carry the old default prompt to S.A.R.A.H.
+        if not raw_prompt or raw_prompt in LEGACY_DEFAULT_PROMPTS:
+            persona = DEFAULT_PERSONA
+            system_prompt = DEFAULT_SYSTEM_PROMPT
+        else:
+            persona = "custom"
+            system_prompt = raw_prompt
+
     return Settings(
         gemini_api_key=get("GEMINI_API_KEY", "").strip(),
         gemini_model=get("GEMINI_MODEL", "gemini-3.1-flash-live-preview").strip() or "gemini-3.1-flash-live-preview",
@@ -105,7 +210,8 @@ def load_settings() -> Settings:
         camera_hflip=hflip,
         samsung_tv_ip=get("SAMSUNG_TV_IP", "10.0.0.2").strip(),
         samsung_tv_mac=get("SAMSUNG_TV_MAC", "80:8A:BD:32:F1:76").strip(),
-        system_prompt=get("SYSTEM_PROMPT", DEFAULT_SYSTEM_PROMPT).strip() or DEFAULT_SYSTEM_PROMPT,
+        persona=persona,
+        system_prompt=system_prompt,
     )
 
 
@@ -121,6 +227,7 @@ def save_settings(s: Settings) -> None:
         f"CAMERA_HFLIP={'true' if s.camera_hflip else 'false'}",
         f"SAMSUNG_TV_IP={s.samsung_tv_ip}",
         f"SAMSUNG_TV_MAC={s.samsung_tv_mac}",
+        f"PERSONA={s.persona}",
         f"SYSTEM_PROMPT={s.system_prompt.replace(chr(10), ' ')}",
     ]
     ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")

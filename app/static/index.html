@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="color-scheme" content="dark" />
-  <title>Gemini Smart Display</title>
+  <title>S.A.R.A.H. Smart Display</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='white'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="/static/style.css?v=17" />
+  <link rel="stylesheet" href="/static/style.css?v=18" />
 </head>
 <body>
   <div class="ambient-bg">
@@ -60,7 +60,7 @@
           <div class="gemini-header">
             <div class="gemini-spark">✦</div>
             <div>
-              <div class="gemini-title">Gemini Live</div>
+              <div class="gemini-title" id="gemini-title">S.A.R.A.H.</div>
               <div class="gemini-sub" id="gemini-ready-sub">Tap to start voice or video chat</div>
             </div>
           </div>
@@ -278,9 +278,15 @@
           </div>
 
           <div class="setting-group">
-            <label>Voice</label>
+            <label>Voice <span class="label-hint">(Aoede / Kore / Zephyr = female)</span></label>
             <div class="pill-group" id="voice-pills"></div>
           </div>
+        </div>
+
+        <div class="setting-group">
+          <label>Personality</label>
+          <div class="pill-group" id="persona-pills"></div>
+          <textarea id="setting-system-prompt" rows="3" placeholder="Describe the assistant's personality and behavior..."></textarea>
         </div>
 
         <div class="setting-row-2">
@@ -313,6 +319,6 @@
   <!-- Toast -->
   <div class="toast hidden" id="toast"></div>
 
-  <script src="/static/app.js?v=17"></script>
+  <script src="/static/app.js?v=18"></script>
 </body>
 </html>

@@ -241,7 +241,8 @@ async def handle_live_websocket(
         await ws.close()
         return
 
-    await send_json({"type": "status", "state": "connecting", "message": f"Connecting to {settings.gemini_model}..."})
+    persona_name = settings.persona_meta()["short_name"]
+    await send_json({"type": "status", "state": "connecting", "message": f"Connecting to {persona_name}..."})
 
     camera_acquired = False
     if video_enabled:

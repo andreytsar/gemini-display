@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .camera import CameraManager
-from .config import AVAILABLE_MODELS, AVAILABLE_VOICES, BASE_DIR, load_settings, save_settings
+from .config import AVAILABLE_MODELS, AVAILABLE_VOICES, BASE_DIR, PERSONAS, load_settings, save_settings
 from .gemini_live import handle_live_websocket
 from .samsung_tv import SamsungTVController
 from .weather import WeatherService
@@ -115,6 +115,7 @@ class SettingsUpdate(BaseModel):
     weather_lon: float | None = None
     camera_rotate: int | None = None
     camera_hflip: bool | None = None
+    persona: str | None = None
     system_prompt: str | None = None
 
 
@@ -150,8 +151,16 @@ async def api_update_settings(body: SettingsUpdate) -> dict[str, Any]:
         settings.camera_rotate = body.camera_rotate
     if body.camera_hflip is not None:
         settings.camera_hflip = body.camera_hflip
+    if body.persona is not None and body.persona in PERSONAS:
+        settings.persona = body.persona
+        preset_prompt = PERSONAS[body.persona]["prompt"]
+        if preset_prompt and (body.system_prompt is None or not body.system_prompt.strip()):
+            settings.system_prompt = preset_prompt
     if body.system_prompt is not None and body.system_prompt.strip():
-        settings.system_prompt = body.system_prompt.strip()
+        cleaned_prompt = " ".join(body.system_prompt.strip().splitlines())
+        settings.system_prompt = cleaned_prompt
+        if settings.persona in ("sarah", "standard") and cleaned_prompt != PERSONAS[settings.persona]["prompt"]:
+            settings.persona = "custom"
 
     save_settings(settings)
     weather_service.invalidate()
