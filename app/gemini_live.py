@@ -147,9 +147,9 @@ def _execute_tv_tool(tv: SamsungTVController, name: str, args: dict[str, Any]) -
         return res, f"TV browser: {url}"
     return {"ok": False, "error": f"Unknown tool: {name}"}, f"Unknown tool: {name}"
 
-# Matches any letter outside Basic/Extended Latin, Hebrew, and Cyrillic
+# Matches any character outside Basic/Extended Latin, Latin-1 symbols (°), Hebrew, Cyrillic, punctuation, and currency (₪/€)
 _DISALLOWED_SCRIPT_RE = re.compile(
-    r"[^\x00-\x7F\u00C0-\u024F\u0400-\u04FF\u0590-\u05FF\u2000-\u206F\s]"
+    r"[^\x00-\x7F\u00A0-\u024F\u0400-\u04FF\u0590-\u05FF\u2000-\u20CF\s]"
 )
 
 
@@ -184,7 +184,15 @@ async def build_system_instruction(
             "immediately invoke the appropriate tv_* tool and give a short natural confirmation in the user's language."
         )
     try:
-        w = await weather_service.get_weather(settings.weather_lat, settings.weather_lon, settings.weather_city)
+        w = await asyncio.wait_for(
+            weather_service.get_weather(
+                settings.weather_lat,
+                settings.weather_lon,
+                settings.weather_city,
+                allow_stale=True,
+            ),
+            timeout=1.5,
+        )
         cur = w["current"]
         context_lines.append(
             f"Current weather in {settings.weather_city}: {cur['temp']}°C (feels like {cur['feels_like']}°C), "

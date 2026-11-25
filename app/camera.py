@@ -105,13 +105,22 @@ class CameraManager:
     def _capture_loop(self) -> None:
         picam2 = None
         try:
+            from libcamera import Transform
             from picamera2 import Picamera2
 
+            init_rot = self._get_rotation()
+            init_hflip = bool(self._get_hflip())
+            hw_vflip = init_rot == 180
+            hw_hflip = (init_rot == 180) ^ init_hflip if init_rot in (0, 180) else False
+
             picam2 = Picamera2()
-            cfg = picam2.create_preview_configuration(main={"size": (512, 384)})
+            cfg = picam2.create_preview_configuration(
+                main={"size": (512, 384)},
+                transform=Transform(hflip=int(hw_hflip), vflip=int(hw_vflip)),
+            )
             picam2.configure(cfg)
             picam2.start()
-            logger.info("Picamera2 started (512x384)")
+            logger.info("Picamera2 started (512x384, hw_hflip=%s, hw_vflip=%s)", hw_hflip, hw_vflip)
 
             interval = 1.0 / max(1.0, self._fps)
             while True:
@@ -123,14 +132,25 @@ class CameraManager:
                 if img.mode != "RGB":
                     img = img.convert("RGB")
                 rot = self._get_rotation()
-                if rot == 180:
-                    img = img.transpose(Image.Transpose.ROTATE_180)
-                elif rot == 90:
-                    img = img.transpose(Image.Transpose.ROTATE_90)
-                elif rot == 270:
-                    img = img.transpose(Image.Transpose.ROTATE_270)
-                if self._get_hflip():
-                    img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+                hflip = bool(self._get_hflip())
+                if rot in (0, 180):
+                    want_vflip = rot == 180
+                    want_hflip = (rot == 180) ^ hflip
+                    if want_vflip != hw_vflip:
+                        img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+                    if want_hflip != hw_hflip:
+                        img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+                else:
+                    if hw_vflip:
+                        img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+                    if hw_hflip:
+                        img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+                    if rot == 90:
+                        img = img.transpose(Image.Transpose.ROTATE_90)
+                    elif rot == 270:
+                        img = img.transpose(Image.Transpose.ROTATE_270)
+                    if hflip:
+                        img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
 
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=self._jpeg_quality, optimize=False)

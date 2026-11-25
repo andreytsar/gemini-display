@@ -130,16 +130,35 @@ class WeatherService:
         self._cache: dict[str, Any] | None = None
         self._cache_key: tuple[float, float, str] | None = None
         self._cache_ts: float = 0.0
+        self._client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=12.0)
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     def invalidate(self) -> None:
         self._cache = None
         self._cache_ts = 0.0
 
-    async def get_weather(self, lat: float, lon: float, city: str, force: bool = False) -> dict[str, Any]:
+    async def get_weather(
+        self,
+        lat: float,
+        lon: float,
+        city: str,
+        force: bool = False,
+        allow_stale: bool = False,
+    ) -> dict[str, Any]:
         key = (round(lat, 4), round(lon, 4), city)
         now = time.monotonic()
-        if not force and self._cache and self._cache_key == key and (now - self._cache_ts) < self._ttl:
-            return self._cache
+        if not force and self._cache and self._cache_key == key:
+            if (now - self._cache_ts) < self._ttl or allow_stale:
+                return self._cache
 
         url = "https://api.open-meteo.com/v1/forecast"
         params = {
@@ -153,13 +172,13 @@ class WeatherService:
 
         raw = None
         last_exc: Exception | None = None
+        client = self._get_client()
         for attempt in range(2):
             try:
-                async with httpx.AsyncClient(timeout=12.0) as client:
-                    resp = await client.get(url, params=params)
-                    resp.raise_for_status()
-                    raw = resp.json()
-                    break
+                resp = await client.get(url, params=params)
+                resp.raise_for_status()
+                raw = resp.json()
+                break
             except Exception as exc:
                 last_exc = exc
                 if attempt == 0:
@@ -238,10 +257,9 @@ class WeatherService:
             return []
         url = "https://geocoding-api.open-meteo.com/v1/search"
         params = {"name": query.strip(), "count": 6, "language": "en", "format": "json"}
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
+        resp = await self._get_client().get(url, params=params, timeout=8.0)
+        resp.raise_for_status()
+        data = resp.json()
         out = []
         for item in data.get("results", []):
             name = item.get("name", "")

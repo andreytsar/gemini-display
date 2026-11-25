@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -30,7 +30,7 @@ weather_service = WeatherService(cache_ttl_seconds=600)
 camera_manager = CameraManager(
     get_rotation=lambda: settings.camera_rotate,
     get_hflip=lambda: settings.camera_hflip,
-    fps=8.0,
+    fps=6.0,
     jpeg_quality=68,
 )
 tv_controller = SamsungTVController(
@@ -44,9 +44,23 @@ tv_controller = SamsungTVController(
 async def lifespan(_app: FastAPI):
     yield
     camera_manager.force_stop()
+    await weather_service.aclose()
 
 
 app = FastAPI(title="Gemini Smart Display", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def add_static_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/static/") and response.status_code == 200:
+        if "v" in request.query_params:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -189,11 +203,11 @@ async def api_set_volume(body: VolumeUpdate) -> dict[str, Any]:
                 timeout=2.0,
                 check=False,
             )
-        if body.delta is not None:
-            cur = _get_volume()["volume"]
-            target = max(0, min(100, cur + body.delta))
+        if body.delta is not None and body.delta != 0:
+            sign = "+" if body.delta > 0 else "-"
+            step = min(100, abs(body.delta))
             subprocess.run(
-                ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{target}%"],
+                ["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", f"{step}%{sign}"],
                 env=env,
                 timeout=2.0,
                 check=False,

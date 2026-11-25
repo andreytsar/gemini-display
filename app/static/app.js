@@ -43,20 +43,33 @@
     el._t = setTimeout(() => el.classList.add("hidden"), ms);
   }
 
-  // --- Clock ---
+  // --- Clock (cached formatters & minimal DOM writes) ---
+  const clockHmEl = $("clock-hm");
+  const clockSecEl = $("clock-sec");
+  const weekdayEl = $("weekday-text");
+  const dateEl = $("date-text");
+  const weekdayFmt = new Intl.DateTimeFormat("en-GB", { weekday: "long" });
+  const dateFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  let lastClockHM = "";
+  let lastClockDay = "";
+
   function updateClock() {
     const now = new Date();
-    const hh = String(now.getHours()).padStart(2, "0");
-    const mm = String(now.getMinutes()).padStart(2, "0");
     const ss = String(now.getSeconds()).padStart(2, "0");
-    $("clock-hm").textContent = `${hh}:${mm}`;
-    $("clock-sec").textContent = ss;
-    $("weekday-text").textContent = now.toLocaleDateString("en-GB", { weekday: "long" });
-    $("date-text").textContent = now.toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
+    clockSecEl.textContent = ss;
+
+    const hm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    if (hm !== lastClockHM) {
+      lastClockHM = hm;
+      clockHmEl.textContent = hm;
+    }
+
+    const dayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+    if (dayKey !== lastClockDay) {
+      lastClockDay = dayKey;
+      weekdayEl.textContent = weekdayFmt.format(now);
+      dateEl.textContent = dateFmt.format(now);
+    }
   }
   updateClock();
   setInterval(updateClock, 1000);
@@ -418,6 +431,9 @@
     lastBubbleEl = null;
   }
 
+  let transcriptScrollQueued = false;
+  const MAX_TRANSCRIPT_BUBBLES = 60;
+
   function appendTranscript(role, text, isFinal) {
     if (!text) return;
     const list = $("transcript-list");
@@ -432,6 +448,10 @@
       div.dir = "auto";
       div.textContent = text;
       list.appendChild(div);
+      while (list.children.length > MAX_TRANSCRIPT_BUBBLES) {
+        if (list.firstElementChild === lastBubbleEl) break;
+        list.firstElementChild.remove();
+      }
       lastRole = role;
       lastBubbleEl = div;
     }
@@ -439,7 +459,13 @@
       lastRole = null;
       lastBubbleEl = null;
     }
-    list.scrollTop = list.scrollHeight;
+    if (!transcriptScrollQueued) {
+      transcriptScrollQueued = true;
+      requestAnimationFrame(() => {
+        transcriptScrollQueued = false;
+        list.scrollTop = list.scrollHeight;
+      });
+    }
   }
 
   // --- Camera Stage ---
@@ -490,9 +516,10 @@
     // Capture worklet (native -> 16kHz anti-aliased PCM)
     const source = audioCtx.createMediaStreamSource(micStream);
     captureNode = new AudioWorkletNode(audioCtx, "pcm-capture-processor");
+    const micMeterEl = $("mic-meter-bar");
     captureNode.port.onmessage = (event) => {
       const { pcm, level } = event.data;
-      $("mic-meter-bar").style.transform = `scaleX(${level.toFixed(3)})`;
+      micMeterEl.style.transform = `scaleX(${level.toFixed(3)})`;
       if (ws && ws.readyState === WebSocket.OPEN && !isMicMuted) {
         ws.send(pcm);
       }
@@ -704,5 +731,5 @@
   loadWeather(false);
   refreshVolume();
   setInterval(() => loadWeather(false), 10 * 60 * 1000);
-  setInterval(refreshVolume, 30 * 1000);
+  setInterval(refreshVolume, 5 * 60 * 1000);
 })();

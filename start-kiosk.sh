@@ -14,6 +14,16 @@ exec chromium \
   --disable-infobars \
   --disable-session-crashed-bubble \
   --disable-extensions \
+  --disable-features=OptimizationGuideOnDeviceModel,OptimizationHints,Translate,MediaRouter,WebContentsForceDark \
+  --disable-background-networking \
+  --disable-component-update \
+  --disable-sync \
+  --disable-default-apps \
+  --disable-translate \
+  --metrics-recording-only \
+  --num-raster-threads=2 \
+  --disk-cache-dir=/tmp/chromium-cache \
+  --disk-cache-size=33554432 \
   --force-device-scale-factor=1.0 \
   --use-fake-ui-for-media-stream \
   --autoplay-policy=no-user-gesture-required \
