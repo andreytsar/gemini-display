@@ -13,6 +13,7 @@ from google.genai import types
 
 from .camera import CameraManager
 from .config import Settings
+from .news import GoogleNewsService
 from .roomba import RoombaController
 from .samsung_tv import SamsungTVController
 from .weather import WeatherService
@@ -175,15 +176,114 @@ def _roomba_function_declarations() -> list[types.FunctionDeclaration]:
     ]
 
 
+def _news_function_declarations() -> list[types.FunctionDeclaration]:
+    return [
+        types.FunctionDeclaration(
+            name="news_briefing",
+            description=(
+                "Fetch a live Google News briefing covering the user's followed topics "
+                "(Israel, World, Technology/AI, Science, Business/Finance, Astronomy, etc.). "
+                "Use when the user asks for the news, a daily briefing, or what's happening in the world."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "language": types.Schema(
+                        type=types.Type.STRING,
+                        enum=["en", "he", "ru"],
+                        description="Preferred news language edition: 'en' (English), 'he' (Hebrew/Israel), or 'ru' (Russian). Default 'en'.",
+                    ),
+                    "per_topic": types.Schema(
+                        type=types.Type.INTEGER,
+                        description="Number of headlines per topic (1 to 4, default 2).",
+                    ),
+                },
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="news_headlines",
+            description=(
+                "Fetch live Google News headlines for a specific category and edition. "
+                "Use when the user asks about a specific section like Israel news, World news, "
+                "Technology, Science, Business/Finance, Health, Sports, or Entertainment."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "category": types.Schema(
+                        type=types.Type.STRING,
+                        enum=[
+                            "top",
+                            "world",
+                            "israel",
+                            "technology",
+                            "science",
+                            "business",
+                            "health",
+                            "sports",
+                            "entertainment",
+                        ],
+                        description="News section/category.",
+                    ),
+                    "edition": types.Schema(
+                        type=types.Type.STRING,
+                        enum=["il_en", "il_he", "world", "ru"],
+                        description="Google News edition: 'il_en' (Israel English), 'il_he' (Israel Hebrew), 'world' (US/Global English), or 'ru' (Russian).",
+                    ),
+                    "limit": types.Schema(
+                        type=types.Type.INTEGER,
+                        description="Number of stories to return (1 to 10, default 6).",
+                    ),
+                },
+                required=["category"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="news_search",
+            description=(
+                "Search live Google News for any specific topic, event, person, company, or follow-up story "
+                "(e.g., 'astronomy', 'James Webb telescope', 'AI models', 'NVIDIA', 'בחירות'). "
+                "Use this both for specific topic requests and when the user wants more details about a story."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "query": types.Schema(
+                        type=types.Type.STRING,
+                        description="Search keywords or topic phrase.",
+                    ),
+                    "language": types.Schema(
+                        type=types.Type.STRING,
+                        enum=["en", "he", "ru", "il_en"],
+                        description="News language/edition ('en', 'he', 'ru', or 'il_en'). Default 'en'.",
+                    ),
+                    "days": types.Schema(
+                        type=types.Type.INTEGER,
+                        description="Recency window in days (1 to 30, default 7).",
+                    ),
+                    "limit": types.Schema(
+                        type=types.Type.INTEGER,
+                        description="Number of stories to return (1 to 10, default 6).",
+                    ),
+                },
+                required=["query"],
+            ),
+        ),
+    ]
+
+
 def build_smart_home_tools(
     tv: SamsungTVController | None,
     roomba: RoombaController | None,
+    news: GoogleNewsService | None = None,
 ) -> list[types.Tool]:
     declarations: list[types.FunctionDeclaration] = []
     if tv and tv.configured:
         declarations.extend(_tv_function_declarations())
     if roomba and roomba.configured:
         declarations.extend(_roomba_function_declarations())
+    if news is not None:
+        declarations.extend(_news_function_declarations())
     if not declarations:
         return []
     return [types.Tool(function_declarations=declarations)]
@@ -246,9 +346,38 @@ def _execute_roomba_tool(
     return {"ok": False, "error": f"Unknown tool: {name}"}, f"Unknown tool: {name}"
 
 
+def _execute_news_tool(
+    news: GoogleNewsService,
+    settings: Settings,
+    name: str,
+    args: dict[str, Any],
+) -> tuple[dict[str, Any], str]:
+    if name == "news_briefing":
+        lang = str(args.get("language", "en") or "en").lower()
+        per_topic = int(args.get("per_topic", 2) or 2)
+        res = news.get_briefing(settings.news_topics_list(), language=lang, per_topic=per_topic)
+        return res, f"News briefing ({lang.upper()})"
+    if name == "news_headlines":
+        cat = str(args.get("category", "top") or "top")
+        ed = str(args.get("edition", "world") or "world")
+        limit = int(args.get("limit", 6) or 6)
+        res = news.get_headlines(category=cat, edition=ed, limit=limit)
+        return res, f"News: {cat} ({ed})"
+    if name == "news_search":
+        q = str(args.get("query", "") or "")
+        lang = str(args.get("language", "en") or "en")
+        days = int(args.get("days", 7) or 7)
+        limit = int(args.get("limit", 6) or 6)
+        res = news.search_news(query=q, language=lang, days=days, limit=limit)
+        return res, f"News search: {q}"
+    return {"ok": False, "error": f"Unknown tool: {name}"}, f"Unknown tool: {name}"
+
+
 def _execute_smart_home_tool(
     tv: SamsungTVController | None,
     roomba: RoombaController | None,
+    news: GoogleNewsService | None,
+    settings: Settings,
     name: str,
     args: dict[str, Any],
 ) -> tuple[dict[str, Any], str, str]:
@@ -258,6 +387,9 @@ def _execute_smart_home_tool(
     if name.startswith("roomba_") and roomba:
         res, label = _execute_roomba_tool(roomba, name, args)
         return res, label, "🤖"
+    if name.startswith("news_") and news:
+        res, label = _execute_news_tool(news, settings, name, args)
+        return res, label, "📰"
     return {"ok": False, "error": f"Unknown or unavailable tool: {name}"}, f"Unknown tool: {name}", "⚙️"
 
 
@@ -280,6 +412,7 @@ async def build_system_instruction(
     weather_service: WeatherService,
     tv: SamsungTVController | None = None,
     roomba: RoombaController | None = None,
+    news: GoogleNewsService | None = None,
 ) -> str:
     now = datetime.now()
     context_lines = [
@@ -305,6 +438,17 @@ async def build_system_instruction(
             "to check the Roomba's status, battery, or dustbin, start cleaning, pause, resume, stop, send it back to "
             "the charging dock/base, locate/beep it, or change suction/passes settings, immediately invoke the "
             "appropriate roomba_* tool and give a short natural confirmation in the user's language."
+        )
+    if news is not None:
+        context_lines.append(
+            f"Google News & World Events: You have live access to Google News via news_briefing, news_headlines, "
+            f"and news_search. The user's followed news topics are: {settings.news_topics}. "
+            "Whenever the user asks what is happening in the world, in Israel, or in any topic (in English, Hebrew, "
+            "or Russian), always call the appropriate news_* tool first instead of guessing. "
+            "For Israel news in Hebrew use edition 'il_he'; for Israel news in English use 'il_en'; for World, Tech/AI, "
+            "Science, Business/Finance, or Astronomy use 'world' (or 'en'). "
+            "Summarize conversationally (3–4 highlights first, without reading raw URLs) and invite the user to ask "
+            "about any story — use news_search to pull deeper coverage whenever they want to discuss a story further."
         )
     try:
         w = await asyncio.wait_for(
@@ -341,6 +485,7 @@ async def handle_live_websocket(
     weather_service: WeatherService,
     tv: SamsungTVController | None = None,
     roomba: RoombaController | None = None,
+    news: GoogleNewsService | None = None,
 ) -> None:
     await ws.accept()
 
@@ -385,7 +530,7 @@ async def handle_live_websocket(
     video_flag = {"enabled": video_enabled}
 
     try:
-        system_instruction = await build_system_instruction(settings, weather_service, tv, roomba)
+        system_instruction = await build_system_instruction(settings, weather_service, tv, roomba, news)
 
         client = genai.Client(
             api_key=settings.gemini_api_key,
@@ -411,7 +556,7 @@ async def handle_live_websocket(
                 parts=[types.Part(text=system_instruction)]
             ),
         )
-        tools = build_smart_home_tools(tv, roomba)
+        tools = build_smart_home_tools(tv, roomba, news)
         if tools:
             config_kwargs["tools"] = tools
 
@@ -495,7 +640,7 @@ async def handle_live_websocket(
                                     fn_args = dict(fc.args or {})
                                     logger.info("Gemini tool_call: %s(%s)", fn_name, fn_args)
                                     result, label, icon = await asyncio.to_thread(
-                                        _execute_smart_home_tool, tv, roomba, fn_name, fn_args
+                                        _execute_smart_home_tool, tv, roomba, news, settings, fn_name, fn_args
                                     )
                                     ok = bool(result.get("ok"))
                                     await send_json({

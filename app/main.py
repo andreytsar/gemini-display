@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from .camera import CameraManager
 from .config import AVAILABLE_MODELS, AVAILABLE_VOICES, BASE_DIR, PERSONAS, load_settings, save_settings
 from .gemini_live import handle_live_websocket
+from .news import GoogleNewsService
 from .roomba import RoombaController
 from .samsung_tv import SamsungTVController
 from .weather import WeatherService
@@ -44,12 +45,14 @@ roomba_controller = RoombaController(
     blid=settings.roomba_blid,
     password=settings.roomba_password,
 )
+news_service = GoogleNewsService(cache_ttl_seconds=300)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     yield
     camera_manager.force_stop()
+    news_service.close()
     await weather_service.aclose()
 
 
@@ -135,6 +138,7 @@ class SettingsUpdate(BaseModel):
     weather_lon: float | None = None
     camera_rotate: int | None = None
     camera_hflip: bool | None = None
+    news_topics: str | None = None
     persona: str | None = None
     system_prompt: str | None = None
 
@@ -171,6 +175,10 @@ async def api_update_settings(body: SettingsUpdate) -> dict[str, Any]:
         settings.camera_rotate = body.camera_rotate
     if body.camera_hflip is not None:
         settings.camera_hflip = body.camera_hflip
+    if body.news_topics is not None:
+        cleaned_topics = ", ".join(t.strip() for t in body.news_topics.split(",") if t.strip())
+        if cleaned_topics:
+            settings.news_topics = cleaned_topics
     if body.persona is not None and body.persona in PERSONAS:
         settings.persona = body.persona
         preset_prompt = PERSONAS[body.persona]["prompt"]
@@ -283,8 +291,28 @@ async def api_roomba_status() -> dict[str, Any]:
     return await asyncio.to_thread(roomba_controller.get_status)
 
 
+@app.get("/api/news/briefing")
+async def api_news_briefing(language: str = "en", per_topic: int = 3) -> dict[str, Any]:
+    return await asyncio.to_thread(
+        news_service.get_briefing,
+        settings.news_topics_list(),
+        language,
+        per_topic,
+    )
+
+
+@app.get("/api/news/search")
+async def api_news_search(
+    q: str = Query(..., min_length=2),
+    language: str = "en",
+    days: int = 7,
+    limit: int = 6,
+) -> dict[str, Any]:
+    return await asyncio.to_thread(news_service.search_news, q, language, days, limit)
+
+
 @app.websocket("/ws/live")
 async def ws_live(ws: WebSocket) -> None:
     await handle_live_websocket(
-        ws, settings, camera_manager, weather_service, tv_controller, roomba_controller
+        ws, settings, camera_manager, weather_service, tv_controller, roomba_controller, news_service
     )

@@ -255,6 +255,10 @@
     pp.innerHTML = "";
     const personas = appSettings.available_personas || [];
     promptEl.value = appSettings.system_prompt || "";
+    const newsTopicsEl = $("setting-news-topics");
+    if (newsTopicsEl) {
+      newsTopicsEl.value = appSettings.news_topics || "";
+    }
 
     const selectPersonaPill = (pid) => {
       pp.querySelectorAll(".pill-opt").forEach((x) => {
@@ -361,6 +365,8 @@
       camera_hflip: selHflip,
     };
     if (selPrompt) payload.system_prompt = selPrompt;
+    const newsTopics = $("setting-news-topics")?.value.trim();
+    if (newsTopics) payload.news_topics = newsTopics;
     if (apiKey) payload.gemini_api_key = apiKey;
     const typedCity = $("setting-city-input").value.trim();
     if (pendingCity && pendingCity.name.toLowerCase() === typedCity.toLowerCase()) {

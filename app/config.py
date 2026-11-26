@@ -97,6 +97,7 @@ PERSONAS: dict[str, dict[str, str]] = {
 
 DEFAULT_PERSONA = "sarah"
 DEFAULT_SYSTEM_PROMPT = SARAH_SYSTEM_PROMPT
+DEFAULT_NEWS_TOPICS = "Israel, World, Technology, Science, Business, Astronomy"
 
 
 @dataclass
@@ -114,8 +115,12 @@ class Settings:
     roomba_ip: str = ""
     roomba_blid: str = ""
     roomba_password: str = ""
+    news_topics: str = DEFAULT_NEWS_TOPICS
     persona: str = DEFAULT_PERSONA
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
+
+    def news_topics_list(self) -> list[str]:
+        return [t.strip() for t in self.news_topics.split(",") if t.strip()]
 
     def persona_meta(self) -> dict[str, str]:
         return PERSONAS.get(self.persona, PERSONAS["custom"])
@@ -135,6 +140,7 @@ class Settings:
             "samsung_tv_mac": self.samsung_tv_mac,
             "roomba_ip": self.roomba_ip,
             "roomba_configured": bool(self.roomba_ip and self.roomba_blid and self.roomba_password),
+            "news_topics": self.news_topics,
             "persona": self.persona,
             "persona_display_name": meta["display_name"],
             "persona_short_name": meta["short_name"],
@@ -218,6 +224,7 @@ def load_settings() -> Settings:
         roomba_ip=get("ROOMBA_IP", "").strip(),
         roomba_blid=get("ROOMBA_BLID", "").strip(),
         roomba_password=get("ROOMBA_PASSWORD", "").strip(),
+        news_topics=get("NEWS_TOPICS", DEFAULT_NEWS_TOPICS).strip() or DEFAULT_NEWS_TOPICS,
         persona=persona,
         system_prompt=system_prompt,
     )
@@ -238,6 +245,7 @@ def save_settings(s: Settings) -> None:
         f"ROOMBA_IP={s.roomba_ip}",
         f"ROOMBA_BLID={s.roomba_blid}",
         f"ROOMBA_PASSWORD={s.roomba_password}",
+        f"NEWS_TOPICS={s.news_topics}",
         f"PERSONA={s.persona}",
         f"SYSTEM_PROMPT={s.system_prompt.replace(chr(10), ' ')}",
     ]
