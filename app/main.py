@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from .camera import CameraManager
 from .config import AVAILABLE_MODELS, AVAILABLE_VOICES, BASE_DIR, PERSONAS, load_settings, save_settings
 from .gemini_live import handle_live_websocket
+from .roomba import RoombaController
 from .samsung_tv import SamsungTVController
 from .weather import WeatherService
 
@@ -37,6 +38,11 @@ tv_controller = SamsungTVController(
     host=settings.samsung_tv_ip,
     mac=settings.samsung_tv_mac,
     token_file=BASE_DIR / "tv_token.txt",
+)
+roomba_controller = RoombaController(
+    host=settings.roomba_ip,
+    blid=settings.roomba_blid,
+    password=settings.roomba_password,
 )
 
 
@@ -272,6 +278,13 @@ async def api_tv_status() -> dict[str, Any]:
     return await asyncio.to_thread(tv_controller.get_status)
 
 
+@app.get("/api/roomba/status")
+async def api_roomba_status() -> dict[str, Any]:
+    return await asyncio.to_thread(roomba_controller.get_status)
+
+
 @app.websocket("/ws/live")
 async def ws_live(ws: WebSocket) -> None:
-    await handle_live_websocket(ws, settings, camera_manager, weather_service, tv_controller)
+    await handle_live_websocket(
+        ws, settings, camera_manager, weather_service, tv_controller, roomba_controller
+    )

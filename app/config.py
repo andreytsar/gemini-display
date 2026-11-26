@@ -111,6 +111,9 @@ class Settings:
     camera_hflip: bool = True
     samsung_tv_ip: str = "10.0.0.2"
     samsung_tv_mac: str = "80:8A:BD:32:F1:76"
+    roomba_ip: str = ""
+    roomba_blid: str = ""
+    roomba_password: str = ""
     persona: str = DEFAULT_PERSONA
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
 
@@ -130,6 +133,8 @@ class Settings:
             "camera_hflip": self.camera_hflip,
             "samsung_tv_ip": self.samsung_tv_ip,
             "samsung_tv_mac": self.samsung_tv_mac,
+            "roomba_ip": self.roomba_ip,
+            "roomba_configured": bool(self.roomba_ip and self.roomba_blid and self.roomba_password),
             "persona": self.persona,
             "persona_display_name": meta["display_name"],
             "persona_short_name": meta["short_name"],
@@ -210,6 +215,9 @@ def load_settings() -> Settings:
         camera_hflip=hflip,
         samsung_tv_ip=get("SAMSUNG_TV_IP", "10.0.0.2").strip(),
         samsung_tv_mac=get("SAMSUNG_TV_MAC", "80:8A:BD:32:F1:76").strip(),
+        roomba_ip=get("ROOMBA_IP", "").strip(),
+        roomba_blid=get("ROOMBA_BLID", "").strip(),
+        roomba_password=get("ROOMBA_PASSWORD", "").strip(),
         persona=persona,
         system_prompt=system_prompt,
     )
@@ -227,6 +235,9 @@ def save_settings(s: Settings) -> None:
         f"CAMERA_HFLIP={'true' if s.camera_hflip else 'false'}",
         f"SAMSUNG_TV_IP={s.samsung_tv_ip}",
         f"SAMSUNG_TV_MAC={s.samsung_tv_mac}",
+        f"ROOMBA_IP={s.roomba_ip}",
+        f"ROOMBA_BLID={s.roomba_blid}",
+        f"ROOMBA_PASSWORD={s.roomba_password}",
         f"PERSONA={s.persona}",
         f"SYSTEM_PROMPT={s.system_prompt.replace(chr(10), ' ')}",
     ]

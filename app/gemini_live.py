@@ -13,6 +13,7 @@ from google.genai import types
 
 from .camera import CameraManager
 from .config import Settings
+from .roomba import RoombaController
 from .samsung_tv import SamsungTVController
 from .weather import WeatherService
 
@@ -21,101 +22,171 @@ logger = logging.getLogger(__name__)
 ALLOWED_LANGUAGES = ["en-US", "he-IL", "ru-RU"]
 
 
-def build_tv_tools() -> list[types.Tool]:
+def _tv_function_declarations() -> list[types.FunctionDeclaration]:
     return [
-        types.Tool(
-            function_declarations=[
-                types.FunctionDeclaration(
-                    name="tv_status",
-                    description="Check whether the user's Samsung Smart TV is currently on or in standby.",
-                    parameters=types.Schema(type=types.Type.OBJECT, properties={}),
-                ),
-                types.FunctionDeclaration(
-                    name="tv_power",
-                    description="Turn the user's Samsung Smart TV on or off (standby).",
-                    parameters=types.Schema(
-                        type=types.Type.OBJECT,
-                        properties={
-                            "action": types.Schema(
-                                type=types.Type.STRING,
-                                enum=["on", "off"],
-                                description="Whether to turn the TV 'on' or 'off'.",
-                            )
-                        },
-                        required=["action"],
+        types.FunctionDeclaration(
+            name="tv_status",
+            description="Check whether the user's Samsung Smart TV is currently on or in standby.",
+            parameters=types.Schema(type=types.Type.OBJECT, properties={}),
+        ),
+        types.FunctionDeclaration(
+            name="tv_power",
+            description="Turn the user's Samsung Smart TV on or off (standby).",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "action": types.Schema(
+                        type=types.Type.STRING,
+                        enum=["on", "off"],
+                        description="Whether to turn the TV 'on' or 'off'.",
+                    )
+                },
+                required=["action"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="tv_volume",
+            description="Adjust the Samsung Smart TV volume up/down or toggle mute.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "action": types.Schema(
+                        type=types.Type.STRING,
+                        enum=["up", "down", "mute"],
+                        description="Volume action: 'up', 'down', or 'mute'.",
                     ),
-                ),
-                types.FunctionDeclaration(
-                    name="tv_volume",
-                    description="Adjust the Samsung Smart TV volume up/down or toggle mute.",
-                    parameters=types.Schema(
-                        type=types.Type.OBJECT,
-                        properties={
-                            "action": types.Schema(
-                                type=types.Type.STRING,
-                                enum=["up", "down", "mute"],
-                                description="Volume action: 'up', 'down', or 'mute'.",
-                            ),
-                            "steps": types.Schema(
-                                type=types.Type.INTEGER,
-                                description="Number of volume steps (1 to 15, default 3). Ignored for mute.",
-                            ),
-                        },
-                        required=["action"],
+                    "steps": types.Schema(
+                        type=types.Type.INTEGER,
+                        description="Number of volume steps (1 to 15, default 3). Ignored for mute.",
                     ),
-                ),
-                types.FunctionDeclaration(
-                    name="tv_control",
-                    description=(
-                        "Send playback, navigation, channel, or input source commands to the Samsung Smart TV "
-                        "(play, pause, stop, rewind, fast_forward, home, back, enter, up, down, left, right, "
-                        "channel_up, channel_down, source, hdmi1, hdmi2, hdmi3, hdmi4, ambient, menu, guide)."
-                    ),
-                    parameters=types.Schema(
-                        type=types.Type.OBJECT,
-                        properties={
-                            "action": types.Schema(
-                                type=types.Type.STRING,
-                                description="Remote control action name.",
-                            )
-                        },
-                        required=["action"],
-                    ),
-                ),
-                types.FunctionDeclaration(
-                    name="tv_open_app",
-                    description=(
-                        "Launch an app on the Samsung Smart TV by name (e.g., YouTube, Netflix, Spotify, "
-                        "Prime Video, Disney+, Apple TV, Plex, Browser). Wakes the TV automatically if off."
-                    ),
-                    parameters=types.Schema(
-                        type=types.Type.OBJECT,
-                        properties={
-                            "app_name": types.Schema(
-                                type=types.Type.STRING,
-                                description="Name of the app to open on the TV.",
-                            )
-                        },
-                        required=["app_name"],
-                    ),
-                ),
-                types.FunctionDeclaration(
-                    name="tv_open_url",
-                    description="Open a web page URL in the Samsung Smart TV's built-in Internet browser.",
-                    parameters=types.Schema(
-                        type=types.Type.OBJECT,
-                        properties={
-                            "url": types.Schema(
-                                type=types.Type.STRING,
-                                description="Full URL to open on the TV browser.",
-                            )
-                        },
-                        required=["url"],
-                    ),
-                ),
-            ]
-        )
+                },
+                required=["action"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="tv_control",
+            description=(
+                "Send playback, navigation, channel, or input source commands to the Samsung Smart TV "
+                "(play, pause, stop, rewind, fast_forward, home, back, enter, up, down, left, right, "
+                "channel_up, channel_down, source, hdmi1, hdmi2, hdmi3, hdmi4, ambient, menu, guide)."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "action": types.Schema(
+                        type=types.Type.STRING,
+                        description="Remote control action name.",
+                    )
+                },
+                required=["action"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="tv_open_app",
+            description=(
+                "Launch an app on the Samsung Smart TV by name (e.g., YouTube, Netflix, Spotify, "
+                "Prime Video, Disney+, Apple TV, Plex, Browser). Wakes the TV automatically if off."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "app_name": types.Schema(
+                        type=types.Type.STRING,
+                        description="Name of the app to open on the TV.",
+                    )
+                },
+                required=["app_name"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="tv_open_url",
+            description="Open a web page URL in the Samsung Smart TV's built-in Internet browser.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "url": types.Schema(
+                        type=types.Type.STRING,
+                        description="Full URL to open on the TV browser.",
+                    )
+                },
+                required=["url"],
+            ),
+        ),
     ]
+
+
+def _roomba_function_declarations() -> list[types.FunctionDeclaration]:
+    return [
+        types.FunctionDeclaration(
+            name="roomba_status",
+            description=(
+                "Check the iRobot Roomba robot vacuum's live status: battery percentage, current state "
+                "(charging on dock, cleaning, paused, returning to dock, stuck), whether the dustbin is "
+                "full or missing, any error codes, and suction/passes settings."
+            ),
+            parameters=types.Schema(type=types.Type.OBJECT, properties={}),
+        ),
+        types.FunctionDeclaration(
+            name="roomba_command",
+            description=(
+                "Send a control command to the iRobot Roomba robot vacuum: 'start' to begin cleaning, "
+                "'pause' to pause, 'resume' to continue a paused cycle, 'stop' to stop, 'dock' to return "
+                "to the charging Home Base, or 'find' to play a locating chime/beep."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "action": types.Schema(
+                        type=types.Type.STRING,
+                        enum=["start", "pause", "resume", "stop", "dock", "find"],
+                        description="Command to send to the Roomba.",
+                    )
+                },
+                required=["action"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="roomba_settings",
+            description=(
+                "Adjust the iRobot Roomba's cleaning settings: suction power ('auto' for Carpet Boost, "
+                "'high' for max performance, 'eco' for quiet/low), cleaning passes ('auto', 'one', 'two'), "
+                "or pause when dustbin is full ('bin_pause')."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "suction": types.Schema(
+                        type=types.Type.STRING,
+                        enum=["auto", "high", "eco"],
+                        description="Suction mode: 'auto', 'high', or 'eco'.",
+                    ),
+                    "passes": types.Schema(
+                        type=types.Type.STRING,
+                        enum=["auto", "one", "two"],
+                        description="Cleaning passes: 'auto', 'one', or 'two'.",
+                    ),
+                    "bin_pause": types.Schema(
+                        type=types.Type.BOOLEAN,
+                        description="Whether to pause cleaning when the dustbin becomes full.",
+                    ),
+                },
+            ),
+        ),
+    ]
+
+
+def build_smart_home_tools(
+    tv: SamsungTVController | None,
+    roomba: RoombaController | None,
+) -> list[types.Tool]:
+    declarations: list[types.FunctionDeclaration] = []
+    if tv and tv.configured:
+        declarations.extend(_tv_function_declarations())
+    if roomba and roomba.configured:
+        declarations.extend(_roomba_function_declarations())
+    if not declarations:
+        return []
+    return [types.Tool(function_declarations=declarations)]
 
 
 def _execute_tv_tool(tv: SamsungTVController, name: str, args: dict[str, Any]) -> tuple[dict[str, Any], str]:
@@ -147,6 +218,49 @@ def _execute_tv_tool(tv: SamsungTVController, name: str, args: dict[str, Any]) -
         return res, f"TV browser: {url}"
     return {"ok": False, "error": f"Unknown tool: {name}"}, f"Unknown tool: {name}"
 
+def _execute_roomba_tool(
+    roomba: RoombaController,
+    name: str,
+    args: dict[str, Any],
+) -> tuple[dict[str, Any], str]:
+    if name == "roomba_status":
+        res = roomba.get_status()
+        state = res.get("state", "unknown")
+        bat = res.get("battery_pct")
+        suffix = f" ({bat}%)" if bat is not None else ""
+        return res, f"Roomba: {state}{suffix}"
+    if name == "roomba_command":
+        act = str(args.get("action", "")).lower()
+        res = roomba.command(act)
+        return res, f"Roomba: {act}"
+    if name == "roomba_settings":
+        suction = args.get("suction")
+        passes = args.get("passes")
+        bin_pause = args.get("bin_pause")
+        res = roomba.set_settings(
+            suction=str(suction) if suction is not None else None,
+            passes=str(passes) if passes is not None else None,
+            bin_pause=bool(bin_pause) if bin_pause is not None else None,
+        )
+        return res, "Roomba settings updated"
+    return {"ok": False, "error": f"Unknown tool: {name}"}, f"Unknown tool: {name}"
+
+
+def _execute_smart_home_tool(
+    tv: SamsungTVController | None,
+    roomba: RoombaController | None,
+    name: str,
+    args: dict[str, Any],
+) -> tuple[dict[str, Any], str, str]:
+    if name.startswith("tv_") and tv:
+        res, label = _execute_tv_tool(tv, name, args)
+        return res, label, "📺"
+    if name.startswith("roomba_") and roomba:
+        res, label = _execute_roomba_tool(roomba, name, args)
+        return res, label, "🤖"
+    return {"ok": False, "error": f"Unknown or unavailable tool: {name}"}, f"Unknown tool: {name}", "⚙️"
+
+
 # Matches any character outside Basic/Extended Latin, Latin-1 symbols (°), Hebrew, Cyrillic, punctuation, and currency (₪/€)
 _DISALLOWED_SCRIPT_RE = re.compile(
     r"[^\x00-\x7F\u00A0-\u024F\u0400-\u04FF\u0590-\u05FF\u2000-\u20CF\s]"
@@ -165,6 +279,7 @@ async def build_system_instruction(
     settings: Settings,
     weather_service: WeatherService,
     tv: SamsungTVController | None = None,
+    roomba: RoombaController | None = None,
 ) -> str:
     now = datetime.now()
     context_lines = [
@@ -182,6 +297,14 @@ async def build_system_instruction(
             "Whenever the user asks (in English, Hebrew, or Russian) to turn the TV on/off, change volume, mute, "
             "pause/play, navigate, change channels/HDMI, open YouTube/Netflix/Spotify/apps, or open a URL on the TV, "
             "immediately invoke the appropriate tv_* tool and give a short natural confirmation in the user's language."
+        )
+    if roomba and roomba.configured:
+        context_lines.append(
+            "Smart Home Roomba Vacuum Control: You are connected to the user's iRobot Roomba 976 robot vacuum. "
+            "Whenever the user asks (in English, Hebrew — e.g. רומבה / שואב אבק, or Russian — e.g. румба / пылесос) "
+            "to check the Roomba's status, battery, or dustbin, start cleaning, pause, resume, stop, send it back to "
+            "the charging dock/base, locate/beep it, or change suction/passes settings, immediately invoke the "
+            "appropriate roomba_* tool and give a short natural confirmation in the user's language."
         )
     try:
         w = await asyncio.wait_for(
@@ -217,6 +340,7 @@ async def handle_live_websocket(
     camera: CameraManager,
     weather_service: WeatherService,
     tv: SamsungTVController | None = None,
+    roomba: RoombaController | None = None,
 ) -> None:
     await ws.accept()
 
@@ -261,7 +385,7 @@ async def handle_live_websocket(
     video_flag = {"enabled": video_enabled}
 
     try:
-        system_instruction = await build_system_instruction(settings, weather_service, tv)
+        system_instruction = await build_system_instruction(settings, weather_service, tv, roomba)
 
         client = genai.Client(
             api_key=settings.gemini_api_key,
@@ -287,8 +411,9 @@ async def handle_live_websocket(
                 parts=[types.Part(text=system_instruction)]
             ),
         )
-        if tv and tv.configured:
-            config_kwargs["tools"] = build_tv_tools()
+        tools = build_smart_home_tools(tv, roomba)
+        if tools:
+            config_kwargs["tools"] = tools
 
         config = types.LiveConnectConfig(**config_kwargs)
 
@@ -362,19 +487,21 @@ async def handle_live_websocket(
                             if stop_event.is_set():
                                 break
 
-                            # Handle Gemini Live function calls (e.g. Samsung TV voice commands)
-                            if response.tool_call and response.tool_call.function_calls and tv:
+                            # Handle Gemini Live function calls (Samsung TV, Roomba, etc.)
+                            if response.tool_call and response.tool_call.function_calls:
                                 fn_responses: list[types.FunctionResponse] = []
                                 for fc in response.tool_call.function_calls:
                                     fn_name = fc.name or ""
                                     fn_args = dict(fc.args or {})
                                     logger.info("Gemini tool_call: %s(%s)", fn_name, fn_args)
-                                    result, label = await asyncio.to_thread(_execute_tv_tool, tv, fn_name, fn_args)
+                                    result, label, icon = await asyncio.to_thread(
+                                        _execute_smart_home_tool, tv, roomba, fn_name, fn_args
+                                    )
                                     ok = bool(result.get("ok"))
                                     await send_json({
                                         "type": "tool",
                                         "ok": ok,
-                                        "text": f"📺 {label}" + ("" if ok else f" ({result.get('error', 'failed')})"),
+                                        "text": f"{icon} {label}" + ("" if ok else f" ({result.get('error', 'failed')})"),
                                     })
                                     fn_responses.append(
                                         types.FunctionResponse(
