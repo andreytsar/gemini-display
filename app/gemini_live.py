@@ -12,7 +12,7 @@ from google import genai
 from google.genai import types
 
 from .camera import CameraManager
-from .config import Settings
+from .config import AVAILABLE_SPEAKING_PACES, DEFAULT_SPEAKING_PACE, Settings
 from .news import GoogleNewsService
 from .roomba import RoombaController
 from .samsung_tv import SamsungTVController
@@ -415,8 +415,13 @@ async def build_system_instruction(
     news: GoogleNewsService | None = None,
 ) -> str:
     now = datetime.now()
+    pace_meta = AVAILABLE_SPEAKING_PACES.get(
+        settings.speaking_pace,
+        AVAILABLE_SPEAKING_PACES[DEFAULT_SPEAKING_PACE],
+    )
     context_lines = [
         settings.system_prompt,
+        pace_meta["instruction"],
         "Strict language rule: The user ONLY speaks English, Hebrew (עברית), or Russian (Русский). "
         "Never interpret unclear audio or background noise as any other language. "
         "Always respond naturally in whichever of those three languages (English, Hebrew, or Russian) the user spoke, "

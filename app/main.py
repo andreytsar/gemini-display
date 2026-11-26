@@ -15,7 +15,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .camera import CameraManager
-from .config import AVAILABLE_MODELS, AVAILABLE_VOICES, BASE_DIR, PERSONAS, load_settings, save_settings
+from .config import (
+    AVAILABLE_MODELS,
+    AVAILABLE_SPEAKING_PACES,
+    AVAILABLE_VOICES,
+    BASE_DIR,
+    PERSONAS,
+    load_settings,
+    save_settings,
+)
 from .gemini_live import handle_live_websocket
 from .news import GoogleNewsService
 from .roomba import RoombaController
@@ -133,6 +141,7 @@ class SettingsUpdate(BaseModel):
     gemini_api_key: str | None = None
     gemini_model: str | None = None
     gemini_voice: str | None = None
+    speaking_pace: str | None = None
     weather_city: str | None = None
     weather_lat: float | None = None
     weather_lon: float | None = None
@@ -152,6 +161,8 @@ async def api_update_settings(body: SettingsUpdate) -> dict[str, Any]:
         settings.gemini_model = body.gemini_model.strip()
     if body.gemini_voice is not None and body.gemini_voice in AVAILABLE_VOICES:
         settings.gemini_voice = body.gemini_voice
+    if body.speaking_pace is not None and body.speaking_pace in AVAILABLE_SPEAKING_PACES:
+        settings.speaking_pace = body.speaking_pace
     if body.weather_city is not None and body.weather_city.strip():
         city_name = body.weather_city.strip()
         if body.weather_lat is not None and body.weather_lon is not None:

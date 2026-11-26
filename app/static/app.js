@@ -250,6 +250,22 @@
       vp.appendChild(b);
     });
 
+    const paceEl = $("pace-pills");
+    if (paceEl) {
+      paceEl.innerHTML = "";
+      (appSettings.available_speaking_paces || []).forEach((p) => {
+        const b = document.createElement("button");
+        b.className = "pill-opt" + (p.id === appSettings.speaking_pace ? " selected" : "");
+        b.textContent = p.label;
+        b.dataset.pace = p.id;
+        b.onclick = () => {
+          paceEl.querySelectorAll(".pill-opt").forEach((x) => x.classList.remove("selected"));
+          b.classList.add("selected");
+        };
+        paceEl.appendChild(b);
+      });
+    }
+
     const pp = $("persona-pills");
     const promptEl = $("setting-system-prompt");
     pp.innerHTML = "";
@@ -351,6 +367,7 @@
   async function saveSettings() {
     const selModel = $("model-pills").querySelector(".selected")?.dataset.model;
     const selVoice = $("voice-pills").querySelector(".selected")?.dataset.voice;
+    const selPace = $("pace-pills")?.querySelector(".selected")?.dataset.pace;
     const selPersona = $("persona-pills").querySelector(".selected")?.dataset.persona;
     const selPrompt = $("setting-system-prompt").value.trim();
     const selRot = $("rotate-pills").querySelector(".selected[data-rot]")?.dataset.rot;
@@ -360,6 +377,7 @@
     const payload = {
       gemini_model: selModel,
       gemini_voice: selVoice,
+      speaking_pace: selPace,
       persona: selPersona,
       camera_rotate: selRot !== undefined ? Number(selRot) : undefined,
       camera_hflip: selHflip,

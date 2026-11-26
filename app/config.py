@@ -24,6 +24,34 @@ AVAILABLE_VOICES = [
 
 FEMALE_VOICES = {"Aoede", "Kore", "Zephyr"}
 
+AVAILABLE_SPEAKING_PACES: dict[str, dict[str, str]] = {
+    "slow": {
+        "id": "slow",
+        "label": "Slow",
+        "instruction": (
+            "Voice pacing: Speak slowly, gently, and very clearly (about 70-75% of normal speed). "
+            "Take deliberate, calm pauses between phrases and sentences so every word is effortless to follow, "
+            "especially when reading news or lists."
+        ),
+    },
+    "relaxed": {
+        "id": "relaxed",
+        "label": "Relaxed",
+        "instruction": (
+            "Voice pacing: Speak a bit slower than usual in a calm, relaxed, unhurried cadence "
+            "(about 85% of normal speed). Enunciate clearly and leave brief, natural pauses between "
+            "clauses and sentences — never rush through answers or news summaries."
+        ),
+    },
+    "normal": {
+        "id": "normal",
+        "label": "Normal",
+        "instruction": "Voice pacing: Speak at a natural, clear conversational pace without rushing.",
+    },
+}
+
+DEFAULT_SPEAKING_PACE = "relaxed"
+
 SARAH_SYSTEM_PROMPT = (
     "You are S.A.R.A.H. (Self Actuated Residential Automated Habitat), also called Sarah — "
     "a sentient female smart-home AI inspired by S.A.R.A.H. from the TV series Eureka, "
@@ -105,6 +133,7 @@ class Settings:
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.1-flash-live-preview"
     gemini_voice: str = "Aoede"
+    speaking_pace: str = DEFAULT_SPEAKING_PACE
     weather_city: str = "Tel Aviv"
     weather_lat: float = 32.0853
     weather_lon: float = 34.7818
@@ -131,6 +160,11 @@ class Settings:
             "api_key_set": bool(self.gemini_api_key.strip()),
             "gemini_model": self.gemini_model,
             "gemini_voice": self.gemini_voice,
+            "speaking_pace": self.speaking_pace,
+            "available_speaking_paces": [
+                {"id": p["id"], "label": p["label"]}
+                for p in AVAILABLE_SPEAKING_PACES.values()
+            ],
             "weather_city": self.weather_city,
             "weather_lat": self.weather_lat,
             "weather_lon": self.weather_lon,
@@ -210,10 +244,14 @@ def load_settings() -> Settings:
             persona = "custom"
             system_prompt = raw_prompt
 
+    raw_pace = get("SPEAKING_PACE", DEFAULT_SPEAKING_PACE).strip().lower()
+    speaking_pace = raw_pace if raw_pace in AVAILABLE_SPEAKING_PACES else DEFAULT_SPEAKING_PACE
+
     return Settings(
         gemini_api_key=get("GEMINI_API_KEY", "").strip(),
         gemini_model=get("GEMINI_MODEL", "gemini-3.1-flash-live-preview").strip() or "gemini-3.1-flash-live-preview",
         gemini_voice=get("GEMINI_VOICE", "Aoede").strip() or "Aoede",
+        speaking_pace=speaking_pace,
         weather_city=get("WEATHER_CITY", "Tel Aviv").strip() or "Tel Aviv",
         weather_lat=get_float("WEATHER_LAT", 32.0853),
         weather_lon=get_float("WEATHER_LON", 34.7818),
@@ -235,6 +273,7 @@ def save_settings(s: Settings) -> None:
         f"GEMINI_API_KEY={s.gemini_api_key}",
         f"GEMINI_MODEL={s.gemini_model}",
         f"GEMINI_VOICE={s.gemini_voice}",
+        f"SPEAKING_PACE={s.speaking_pace}",
         f"WEATHER_CITY={s.weather_city}",
         f"WEATHER_LAT={s.weather_lat}",
         f"WEATHER_LON={s.weather_lon}",
