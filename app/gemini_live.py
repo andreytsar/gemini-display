@@ -273,10 +273,45 @@ def _news_function_declarations() -> list[types.FunctionDeclaration]:
     ]
 
 
+def _weather_function_declarations() -> list[types.FunctionDeclaration]:
+    return [
+        types.FunctionDeclaration(
+            name="weather_lookup",
+            description=(
+                "Fetch live current weather, local time, sunrise/sunset, and a multi-day forecast (up to 7 days) "
+                "for ANY city or location worldwide (or the user's home city if location is omitted). "
+                "Use whenever the user asks about weather, temperature, rain, snow, wind, humidity, or forecast "
+                "for any city in the world or for multi-day forecasts at home."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "location": types.Schema(
+                        type=types.Type.STRING,
+                        description=(
+                            "City or place name (e.g., 'Tokyo', 'New York', 'Paris', 'London', 'Eilat', 'Moscow'). "
+                            "Use the standard English city name when possible; omit for the user's home city."
+                        ),
+                    ),
+                    "country": types.Schema(
+                        type=types.Type.STRING,
+                        description="Optional country, state, or region to disambiguate cities (e.g., 'UK', 'Canada', 'USA', 'Israel').",
+                    ),
+                    "days": types.Schema(
+                        type=types.Type.INTEGER,
+                        description="Number of forecast days including today (1 to 7, default 5).",
+                    ),
+                },
+            ),
+        ),
+    ]
+
+
 def build_smart_home_tools(
     tv: SamsungTVController | None,
     roomba: RoombaController | None,
     news: GoogleNewsService | None = None,
+    weather: WeatherService | None = None,
 ) -> list[types.Tool]:
     declarations: list[types.FunctionDeclaration] = []
     if tv and tv.configured:
@@ -285,6 +320,8 @@ def build_smart_home_tools(
         declarations.extend(_roomba_function_declarations())
     if news is not None:
         declarations.extend(_news_function_declarations())
+    if weather is not None:
+        declarations.extend(_weather_function_declarations())
     if not declarations:
         return []
     return [types.Tool(function_declarations=declarations)]
@@ -372,6 +409,67 @@ def _execute_news_tool(
         res = news.search_news(query=q, language=lang, days=days, limit=limit)
         return res, f"News search: {q}"
     return {"ok": False, "error": f"Unknown tool: {name}"}, f"Unknown tool: {name}"
+
+
+async def _execute_weather_tool(
+    weather: WeatherService,
+    settings: Settings,
+    name: str,
+    args: dict[str, Any],
+) -> tuple[dict[str, Any], str, str]:
+    if name == "weather_lookup":
+        loc = str(args.get("location", "") or "").strip()
+        country = str(args.get("country", "") or "").strip() or None
+        days = int(args.get("days", 5) or 5)
+        if not loc:
+            try:
+                w = await weather.get_weather(
+                    settings.weather_lat,
+                    settings.weather_lon,
+                    settings.weather_city,
+                    forecast_days=days,
+                )
+                cur = w["current"]
+                astro = w.get("astronomy") or {}
+                res = {
+                    "ok": True,
+                    "location": settings.weather_city,
+                    "local_time": w.get("local_time", ""),
+                    "timezone": w.get("timezone", ""),
+                    "current": {
+                        "temp_c": cur["temp"],
+                        "feels_like_c": cur["feels_like"],
+                        "description": cur["description"],
+                        "humidity_pct": cur["humidity"],
+                        "wind_kmh": cur["wind_kmh"],
+                        "is_day": cur["is_day"],
+                        "today_high_c": cur["temp_max"],
+                        "today_low_c": cur["temp_min"],
+                    },
+                    "forecast": [
+                        {
+                            "day": d["day"],
+                            "date": d["date"],
+                            "description": d["description"],
+                            "temp_max_c": d["temp_max"],
+                            "temp_min_c": d["temp_min"],
+                            "precip_prob_pct": d["precip_prob"],
+                        }
+                        for d in w.get("daily_all", [])
+                    ],
+                    "sun": {
+                        "sunrise": astro.get("sunrise"),
+                        "sunset": astro.get("sunset"),
+                        "daylight": astro.get("daylight"),
+                    },
+                }
+                return res, f"Weather: {settings.weather_city}", "🌤️"
+            except Exception as exc:
+                return {"ok": False, "error": f"Weather unavailable: {exc}"}, f"Weather: {settings.weather_city}", "🌤️"
+        res = await weather.get_weather_by_location(loc, country=country, days=days)
+        label_loc = res.get("location") or loc
+        return res, f"Weather: {label_loc}", "🌤️"
+    return {"ok": False, "error": f"Unknown tool: {name}"}, f"Unknown tool: {name}", "🌤️"
 
 
 def _execute_smart_home_tool(
@@ -500,6 +598,13 @@ async def build_system_instruction(
             "Summarize conversationally (3–4 highlights first, without reading raw URLs) and invite the user to ask "
             "about any story — use news_search to pull deeper coverage whenever they want to discuss a story further."
         )
+    context_lines.append(
+        "Worldwide Weather: You have live global weather access via weather_lookup (powered by Open-Meteo). "
+        "Whenever the user asks about current weather, local time, or a multi-day forecast (up to 7 days) for ANY city "
+        "or country worldwide — or asks for a multi-day forecast at home — always call weather_lookup first instead of "
+        "guessing, passing the standard English city name (e.g. 'Tokyo', 'London', 'Paris', 'New York') and optional "
+        "country if ambiguous, then answer naturally in the user's language (English, Hebrew, or Russian)."
+    )
     try:
         w = await asyncio.wait_for(
             weather_service.get_weather(
@@ -606,7 +711,7 @@ async def handle_live_websocket(
                 parts=[types.Part(text=system_instruction)]
             ),
         )
-        tools = build_smart_home_tools(tv, roomba, news)
+        tools = build_smart_home_tools(tv, roomba, news, weather_service)
         if tools:
             config_kwargs["tools"] = tools
 
@@ -689,9 +794,14 @@ async def handle_live_websocket(
                                     fn_name = fc.name or ""
                                     fn_args = dict(fc.args or {})
                                     logger.info("Gemini tool_call: %s(%s)", fn_name, fn_args)
-                                    result, label, icon = await asyncio.to_thread(
-                                        _execute_smart_home_tool, tv, roomba, news, settings, fn_name, fn_args
-                                    )
+                                    if fn_name.startswith("weather_"):
+                                        result, label, icon = await _execute_weather_tool(
+                                            weather_service, settings, fn_name, fn_args
+                                        )
+                                    else:
+                                        result, label, icon = await asyncio.to_thread(
+                                            _execute_smart_home_tool, tv, roomba, news, settings, fn_name, fn_args
+                                        )
                                     ok = bool(result.get("ok"))
                                     await send_json({
                                         "type": "tool",
