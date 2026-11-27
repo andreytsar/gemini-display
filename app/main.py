@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from .camera import CameraManager
 from .config import (
+    AVAILABLE_LANGUAGES,
     AVAILABLE_MODELS,
     AVAILABLE_SPEAKING_PACES,
     AVAILABLE_VOICES,
@@ -142,6 +143,7 @@ class SettingsUpdate(BaseModel):
     gemini_model: str | None = None
     gemini_voice: str | None = None
     speaking_pace: str | None = None
+    language_mode: str | None = None
     weather_city: str | None = None
     weather_lat: float | None = None
     weather_lon: float | None = None
@@ -163,6 +165,8 @@ async def api_update_settings(body: SettingsUpdate) -> dict[str, Any]:
         settings.gemini_voice = body.gemini_voice
     if body.speaking_pace is not None and body.speaking_pace in AVAILABLE_SPEAKING_PACES:
         settings.speaking_pace = body.speaking_pace
+    if body.language_mode is not None and body.language_mode in AVAILABLE_LANGUAGES:
+        settings.language_mode = body.language_mode
     if body.weather_city is not None and body.weather_city.strip():
         city_name = body.weather_city.strip()
         if body.weather_lat is not None and body.weather_lon is not None:

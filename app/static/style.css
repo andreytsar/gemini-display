@@ -504,7 +504,58 @@ html, body {
 .gemini-header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+}
+
+.gemini-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  flex-shrink: 0;
+}
+
+.lang-btn {
+  height: 30px;
+  min-width: 34px;
+  padding: 0 7px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.lang-btn.selected {
+  background: rgba(56, 189, 248, 0.26);
+  color: #e0f2fe;
+}
+
+.lang-btn:active {
+  transform: scale(0.95);
+}
+
+.lang-switch-sm .lang-btn {
+  height: 26px;
+  min-width: 30px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.transcript-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .gemini-spark {

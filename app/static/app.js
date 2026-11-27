@@ -13,9 +13,12 @@
   let isMicMuted = false;
   let isVideoOn = false;
   let inCall = false;
+  let activeLanguageMode = "auto";
   let lastRole = null;
   let lastBubbleEl = null;
   let lastTextNode = null;
+  let lastTurnId = null;
+  const bubblesByTurnId = new Map();
   let pendingTranscriptOps = [];
   let transcriptFlushTimer = null;
   let transcriptScrollQueued = false;
@@ -190,6 +193,48 @@
     return (appSettings && appSettings.persona_short_name) || "Sarah";
   }
 
+  const LANG_SHORT_LABELS = {
+    auto: "Auto · EN/עב/RU",
+    en: "English",
+    he: "עברית",
+    ru: "Русский",
+  };
+
+  function syncLanguageUI(mode) {
+    activeLanguageMode = LANG_SHORT_LABELS[mode] ? mode : "auto";
+    document.querySelectorAll(".lang-switch .lang-btn[data-lang]").forEach((btn) => {
+      btn.classList.toggle("selected", btn.dataset.lang === activeLanguageMode);
+    });
+    if (appSettings && appSettings.api_key_set) {
+      const prefix = appSettings.persona_subtitle ? `${appSettings.persona_subtitle} · ` : "";
+      const langTag = LANG_SHORT_LABELS[activeLanguageMode] || "Auto";
+      $("gemini-ready-sub").textContent = `${prefix}${appSettings.gemini_voice} · ${langTag}`;
+    }
+  }
+
+  async function setLanguageMode(mode) {
+    if (!LANG_SHORT_LABELS[mode] || mode === activeLanguageMode) return;
+    syncLanguageUI(mode);
+    if (appSettings) appSettings.language_mode = mode;
+
+    fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language_mode: mode }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((updated) => {
+        if (updated) appSettings = updated;
+      })
+      .catch(() => {});
+
+    if (inCall) {
+      connectLiveSocket(isVideoOn, null);
+    } else {
+      showToast(`Language: ${LANG_SHORT_LABELS[mode]}`, 1800);
+    }
+  }
+
   async function loadSettings() {
     try {
       const r = await fetch("/api/settings");
@@ -198,13 +243,14 @@
       const displayName = personaDisplayName();
       $("gemini-title").textContent = displayName;
       document.title = `${displayName} Smart Display`;
+      activeLanguageMode = appSettings.language_mode || "auto";
       if (appSettings.api_key_set) {
         dot.className = "status-dot ready";
-        const prefix = appSettings.persona_subtitle ? `${appSettings.persona_subtitle} · ` : "";
-        $("gemini-ready-sub").textContent = `${prefix}${appSettings.gemini_voice} · EN / עב / RU`;
+        syncLanguageUI(activeLanguageMode);
       } else {
         dot.className = "status-dot warn";
         $("gemini-ready-sub").textContent = "Tap Settings (⚙) to add your Gemini API key";
+        syncLanguageUI(activeLanguageMode);
       }
       $("call-model-tag").textContent = appSettings.gemini_model;
     } catch {}
@@ -269,6 +315,22 @@
           b.classList.add("selected");
         };
         paceEl.appendChild(b);
+      });
+    }
+
+    const langEl = $("lang-pills");
+    if (langEl) {
+      langEl.innerHTML = "";
+      (appSettings.available_languages || []).forEach((lg) => {
+        const b = document.createElement("button");
+        b.className = "pill-opt" + (lg.id === (appSettings.language_mode || "auto") ? " selected" : "");
+        b.textContent = lg.label;
+        b.dataset.lang = lg.id;
+        b.onclick = () => {
+          langEl.querySelectorAll(".pill-opt").forEach((x) => x.classList.remove("selected"));
+          b.classList.add("selected");
+        };
+        langEl.appendChild(b);
       });
     }
 
@@ -374,6 +436,7 @@
     const selModel = $("model-pills").querySelector(".selected")?.dataset.model;
     const selVoice = $("voice-pills").querySelector(".selected")?.dataset.voice;
     const selPace = $("pace-pills")?.querySelector(".selected")?.dataset.pace;
+    const selLang = $("lang-pills")?.querySelector(".selected")?.dataset.lang;
     const selPersona = $("persona-pills").querySelector(".selected")?.dataset.persona;
     const selPrompt = $("setting-system-prompt").value.trim();
     const selRot = $("rotate-pills").querySelector(".selected[data-rot]")?.dataset.rot;
@@ -384,6 +447,7 @@
       gemini_model: selModel,
       gemini_voice: selVoice,
       speaking_pace: selPace,
+      language_mode: selLang,
       persona: selPersona,
       camera_rotate: selRot !== undefined ? Number(selRot) : undefined,
       camera_hflip: selHflip,
@@ -463,11 +527,13 @@
       transcriptFlushTimer = null;
     }
     pendingTranscriptOps = [];
+    bubblesByTurnId.clear();
     const list = $("transcript-list");
     list.innerHTML = `<div class="transcript-empty">${personaShortName()} is listening...</div>`;
     lastRole = null;
     lastBubbleEl = null;
     lastTextNode = null;
+    lastTurnId = null;
   }
 
   function flushTranscript() {
@@ -490,13 +556,24 @@
         lastRole = null;
         lastBubbleEl = null;
         lastTextNode = null;
+        lastTurnId = null;
         continue;
       }
-      const { role, text, isFinal } = op;
+      const { role, text, isFinal, turnId } = op;
       if (!text) continue;
 
-      if (lastRole === role && lastBubbleEl && lastTextNode) {
+      const sameBubble =
+        lastRole === role &&
+        lastBubbleEl &&
+        lastTextNode &&
+        (turnId == null || lastTurnId == null || turnId === lastTurnId);
+
+      if (sameBubble) {
         lastTextNode.appendData(text);
+        if (turnId != null && !bubblesByTurnId.has(turnId)) {
+          lastTurnId = turnId;
+          bubblesByTurnId.set(turnId, { el: lastBubbleEl, textNode: lastTextNode });
+        }
         didWrite = true;
       } else {
         if (!text.trim()) continue;
@@ -507,13 +584,22 @@
         const tn = document.createTextNode(text);
         div.appendChild(tn);
         list.appendChild(div);
+        if (turnId != null) {
+          div.dataset.turnId = String(turnId);
+          bubblesByTurnId.set(turnId, { el: div, textNode: tn });
+        }
         while (list.children.length > MAX_TRANSCRIPT_BUBBLES) {
-          if (list.firstElementChild === div) break;
-          list.firstElementChild.remove();
+          const oldest = list.firstElementChild;
+          if (oldest === div) break;
+          if (oldest.dataset && oldest.dataset.turnId) {
+            bubblesByTurnId.delete(Number(oldest.dataset.turnId));
+          }
+          oldest.remove();
         }
         lastRole = role;
         lastBubbleEl = div;
         lastTextNode = tn;
+        lastTurnId = turnId ?? null;
         didWrite = true;
       }
 
@@ -521,6 +607,7 @@
         lastRole = null;
         lastBubbleEl = null;
         lastTextNode = null;
+        lastTurnId = null;
       }
     }
 
@@ -533,19 +620,45 @@
     }
   }
 
+  function replaceTranscriptTurn(turnId, role, text) {
+    if (!text || !text.trim()) return;
+    flushTranscript();
+    const entry = bubblesByTurnId.get(turnId);
+    if (entry && entry.textNode && entry.el && entry.el.isConnected) {
+      entry.textNode.data = text;
+      const list = $("transcript-list");
+      if (!transcriptScrollQueued) {
+        transcriptScrollQueued = true;
+        requestAnimationFrame(() => {
+          transcriptScrollQueued = false;
+          list.scrollTop = list.scrollHeight;
+        });
+      }
+    } else {
+      appendTranscript(role || "assistant", text, true, turnId);
+    }
+  }
+
   function breakTranscriptBubble() {
     pendingTranscriptOps.push({ type: "break" });
     flushTranscript();
   }
 
-  function appendTranscript(role, text, isFinal) {
+  function appendTranscript(role, text, isFinal, turnId = null) {
     if (!text) return;
     const prev = pendingTranscriptOps.length > 0 ? pendingTranscriptOps[pendingTranscriptOps.length - 1] : null;
-    if (prev && prev.type === "text" && prev.role === role && !prev.isFinal) {
+    if (
+      prev &&
+      prev.type === "text" &&
+      prev.role === role &&
+      !prev.isFinal &&
+      (turnId == null || prev.turnId == null || prev.turnId === turnId)
+    ) {
       prev.text += text;
+      if (turnId != null) prev.turnId = turnId;
       if (isFinal) prev.isFinal = true;
     } else {
-      pendingTranscriptOps.push({ type: "text", role, text, isFinal: !!isFinal });
+      pendingTranscriptOps.push({ type: "text", role, text, isFinal: !!isFinal, turnId });
     }
 
     if (isFinal) {
@@ -655,6 +768,93 @@
   }
 
   // --- Live Session Lifecycle ---
+  function connectLiveSocket(withVideo, initialPrompt = null) {
+    if (ws) {
+      const prevWs = ws;
+      ws = null;
+      try {
+        if (prevWs.readyState === WebSocket.OPEN) {
+          prevWs.send(JSON.stringify({ type: "stop" }));
+        }
+        prevWs.close();
+      } catch {}
+    }
+    flushPlayback();
+    breakTranscriptBubble();
+    bubblesByTurnId.clear();
+
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const sock = new WebSocket(`${proto}//${location.host}/ws/live`);
+    sock.binaryType = "arraybuffer";
+    ws = sock;
+
+    $("call-status-pill").classList.remove("error", "speaking");
+    const langSuffix = activeLanguageMode !== "auto" ? ` (${LANG_SHORT_LABELS[activeLanguageMode]})` : "";
+    $("call-status-text").textContent = `Connecting to ${personaShortName()}${langSuffix}...`;
+
+    sock.onopen = () => {
+      if (ws !== sock) return;
+      sock.send(
+        JSON.stringify({
+          type: "start",
+          video: withVideo,
+          prompt: initialPrompt,
+          language: activeLanguageMode,
+        })
+      );
+    };
+
+    sock.onmessage = (event) => {
+      if (ws !== sock) return;
+      if (event.data instanceof ArrayBuffer) {
+        playPcmAudio(event.data);
+        return;
+      }
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "audio_format" && msg.rate && playerNode) {
+          playerNode.port.postMessage({ type: "config", sampleRate: msg.rate });
+        } else if (msg.type === "status") {
+          $("call-status-text").textContent = msg.message || msg.state;
+          if (msg.state === "error") {
+            $("call-status-pill").classList.add("error");
+            showToast(msg.message || "Gemini connection error", 5000);
+          }
+        } else if (msg.type === "transcript") {
+          appendTranscript(msg.role, msg.text, !!msg.final, msg.turn_id ?? null);
+        } else if (msg.type === "transcript_replace") {
+          replaceTranscriptTurn(msg.turn_id, msg.role, msg.text);
+        } else if (msg.type === "tool") {
+          appendTranscript("tool", msg.text, true);
+        } else if (msg.type === "interrupted") {
+          flushPlayback();
+          breakTranscriptBubble();
+        } else if (msg.type === "turn_complete") {
+          if (playerNode) {
+            playerNode.port.postMessage({ type: "flush_start" });
+          }
+          breakTranscriptBubble();
+        }
+      } catch {}
+    };
+
+    sock.onerror = () => {
+      if (ws !== sock) return;
+      $("call-status-pill").classList.add("error");
+      $("call-status-text").textContent = "Connection error";
+    };
+
+    sock.onclose = () => {
+      if (ws !== sock) return;
+      ws = null;
+      if (inCall) {
+        setTimeout(() => {
+          if (inCall && !ws) endCall();
+        }, 1200);
+      }
+    };
+  }
+
   async function startCall(withVideo, initialPrompt = null) {
     if (inCall) return;
     if (appSettings && !appSettings.api_key_set) {
@@ -683,58 +883,7 @@
       return;
     }
 
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    ws = new WebSocket(`${proto}//${location.host}/ws/live`);
-    ws.binaryType = "arraybuffer";
-
-    ws.onopen = () => {
-      $("call-status-text").textContent = `Connecting to ${personaShortName()}...`;
-      ws.send(JSON.stringify({ type: "start", video: withVideo, prompt: initialPrompt }));
-    };
-
-    ws.onmessage = (event) => {
-      if (event.data instanceof ArrayBuffer) {
-        playPcmAudio(event.data);
-        return;
-      }
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === "audio_format" && msg.rate && playerNode) {
-          playerNode.port.postMessage({ type: "config", sampleRate: msg.rate });
-        } else if (msg.type === "status") {
-          $("call-status-text").textContent = msg.message || msg.state;
-          if (msg.state === "error") {
-            $("call-status-pill").classList.add("error");
-            showToast(msg.message || "Gemini connection error", 5000);
-          }
-        } else if (msg.type === "transcript") {
-          appendTranscript(msg.role, msg.text, !!msg.final);
-        } else if (msg.type === "tool") {
-          appendTranscript("tool", msg.text, true);
-        } else if (msg.type === "interrupted") {
-          flushPlayback();
-          breakTranscriptBubble();
-        } else if (msg.type === "turn_complete") {
-          if (playerNode) {
-            playerNode.port.postMessage({ type: "flush_start" });
-          }
-          breakTranscriptBubble();
-        }
-      } catch {}
-    };
-
-    ws.onerror = () => {
-      $("call-status-pill").classList.add("error");
-      $("call-status-text").textContent = "Connection error";
-    };
-
-    ws.onclose = () => {
-      if (inCall) {
-        setTimeout(() => {
-          if (inCall) endCall();
-        }, 1200);
-      }
-    };
+    connectLiveSocket(withVideo, initialPrompt);
   }
 
   function endCall() {
@@ -768,6 +917,10 @@
 
   document.querySelectorAll(".chip-btn").forEach((btn) => {
     btn.onclick = () => startCall(btn.dataset.mode === "video", btn.dataset.prompt);
+  });
+
+  document.querySelectorAll(".lang-switch .lang-btn[data-lang]").forEach((btn) => {
+    btn.onclick = () => setLanguageMode(btn.dataset.lang);
   });
 
   $("end-call-btn").onclick = endCall;

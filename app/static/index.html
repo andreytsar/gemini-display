@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark" />
   <title>S.A.R.A.H. Smart Display</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='white'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="/static/style.css?v=20" />
+  <link rel="stylesheet" href="/static/style.css?v=21" />
 </head>
 <body>
   <div class="ambient-bg">
@@ -59,9 +59,15 @@
         <div class="glass-card gemini-card">
           <div class="gemini-header">
             <div class="gemini-spark">✦</div>
-            <div>
+            <div class="gemini-header-text">
               <div class="gemini-title" id="gemini-title">S.A.R.A.H.</div>
               <div class="gemini-sub" id="gemini-ready-sub">Tap to start voice or video chat</div>
+            </div>
+            <div class="lang-switch" id="dash-lang-switch" aria-label="Language mode">
+              <button class="lang-btn selected" data-lang="auto">Auto</button>
+              <button class="lang-btn" data-lang="en">EN</button>
+              <button class="lang-btn" data-lang="he">עב</button>
+              <button class="lang-btn" data-lang="ru">RU</button>
             </div>
           </div>
 
@@ -207,7 +213,15 @@
         <div class="glass-card transcript-card">
           <div class="transcript-header">
             <span>Conversation</span>
-            <span class="model-tag" id="call-model-tag"></span>
+            <div class="transcript-header-right">
+              <div class="lang-switch lang-switch-sm" id="call-lang-switch" aria-label="Active language">
+                <button class="lang-btn selected" data-lang="auto">Auto</button>
+                <button class="lang-btn" data-lang="en">EN</button>
+                <button class="lang-btn" data-lang="he">עב</button>
+                <button class="lang-btn" data-lang="ru">RU</button>
+              </div>
+              <span class="model-tag" id="call-model-tag"></span>
+            </div>
           </div>
           <div class="transcript-list" id="transcript-list">
             <div class="transcript-empty">Listening for your voice...</div>
@@ -283,9 +297,16 @@
           </div>
         </div>
 
-        <div class="setting-group">
-          <label>Speaking Pace</label>
-          <div class="pill-group" id="pace-pills"></div>
+        <div class="setting-row-2">
+          <div class="setting-group">
+            <label>Speaking Pace</label>
+            <div class="pill-group" id="pace-pills"></div>
+          </div>
+
+          <div class="setting-group">
+            <label>Language Lock <span class="label-hint">(syncs voice &amp; transcript)</span></label>
+            <div class="pill-group" id="lang-pills"></div>
+          </div>
         </div>
 
         <div class="setting-group">
@@ -329,6 +350,6 @@
   <!-- Toast -->
   <div class="toast hidden" id="toast"></div>
 
-  <script src="/static/app.js?v=22"></script>
+  <script src="/static/app.js?v=23"></script>
 </body>
 </html>

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import re
 import unicodedata
+import wave
 from datetime import datetime
 from typing import Any
 
@@ -13,7 +15,13 @@ from google import genai
 from google.genai import types
 
 from .camera import CameraManager
-from .config import AVAILABLE_SPEAKING_PACES, DEFAULT_SPEAKING_PACE, Settings
+from .config import (
+    AVAILABLE_LANGUAGES,
+    AVAILABLE_SPEAKING_PACES,
+    DEFAULT_LANGUAGE_MODE,
+    DEFAULT_SPEAKING_PACE,
+    Settings,
+)
 from .news import GoogleNewsService
 from .roomba import RoombaController
 from .samsung_tv import SamsungTVController
@@ -22,6 +30,8 @@ from .weather import WeatherService
 logger = logging.getLogger(__name__)
 
 ALLOWED_LANGUAGES = ["en-US", "he-IL", "ru-RU"]
+RETRANSCRIBE_MODEL = "gemini-3.5-flash-lite"
+MAX_TURN_AUDIO_BYTES = 24000 * 2 * 90  # up to 90s of 24kHz 16-bit mono PCM (~4.3 MB)
 
 
 def _tv_function_declarations() -> list[types.FunctionDeclaration]:
@@ -546,29 +556,95 @@ def _is_allowed_transcript(text: str) -> bool:
     return _filter_transcript(text, strict_chunk=True) is not None
 
 
+def _detect_dominant_lang(text: str) -> tuple[str | None, dict[str, int]]:
+    counts = {"en": 0, "he": 0, "ru": 0}
+    for ch in text:
+        code = ord(ch)
+        if (65 <= code <= 90) or (97 <= code <= 122):
+            counts["en"] += 1
+        elif 0x05D0 <= code <= 0x05EA:
+            counts["he"] += 1
+        elif (0x0410 <= code <= 0x044F) or code in (0x0401, 0x0451):
+            counts["ru"] += 1
+    total = counts["en"] + counts["he"] + counts["ru"]
+    if total < 3:
+        return None, counts
+    dominant = max(counts, key=lambda k: counts[k])
+    return (dominant if counts[dominant] >= 3 else None), counts
+
+
+def _needs_retranscription(expected_lang: str | None, out_text: str, lang_mode: str) -> bool:
+    """Return True when the streamed output transcript likely mismatches the spoken language."""
+    if not out_text or not out_text.strip():
+        return True
+    dom, counts = _detect_dominant_lang(out_text)
+    total = counts["en"] + counts["he"] + counts["ru"]
+    if total < 3:
+        return False
+
+    # Locked language mode: re-transcribe if ASR drifted to another script
+    if lang_mode != "auto":
+        return dom is not None and dom != lang_mode
+
+    # Auto mode: re-transcribe if assistant transcript script mismatches the user's spoken language
+    if expected_lang and dom and dom != expected_lang:
+        return True
+
+    # Auto mode: catch Hebrew <-> Russian script mixing or heavy non-English bleed inside English
+    if counts["he"] >= 4 and counts["ru"] >= 4 and min(counts["he"], counts["ru"]) / total >= 0.15:
+        return True
+    if dom == "en" and max(counts["he"], counts["ru"]) >= 4 and max(counts["he"], counts["ru"]) / total >= 0.2:
+        return True
+    return False
+
+
+def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int) -> bytes:
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_bytes)
+    return buf.getvalue()
+
+
 async def build_system_instruction(
     settings: Settings,
     weather_service: WeatherService,
     tv: SamsungTVController | None = None,
     roomba: RoombaController | None = None,
     news: GoogleNewsService | None = None,
+    language_mode: str = DEFAULT_LANGUAGE_MODE,
 ) -> str:
     now = datetime.now()
     pace_meta = AVAILABLE_SPEAKING_PACES.get(
         settings.speaking_pace,
         AVAILABLE_SPEAKING_PACES[DEFAULT_SPEAKING_PACE],
     )
+    lang_mode = language_mode if language_mode in AVAILABLE_LANGUAGES else DEFAULT_LANGUAGE_MODE
+    if lang_mode == "auto":
+        lang_rule = (
+            "STRICT LANGUAGE POLICY: You and the user ONLY communicate in English, Hebrew (עברית), or Russian (Русский). "
+            "NEVER speak, reply, quote, or write transcriptions in any other language (never Arabic, Ukrainian, Spanish, "
+            "French, German, Chinese, etc.). "
+            "Never interpret unclear audio, pauses, or background noise as any language other than English, Hebrew, or Russian. "
+            "If a tool result, proper name, or news headline contains another language, translate it naturally into the active "
+            "language (English, Hebrew, or Russian). "
+            "Always reply naturally in whichever of those three languages (English, Hebrew, or Russian) the user spoke, "
+            "switching seamlessly if the user switches between them."
+        )
+    else:
+        lang_name = AVAILABLE_LANGUAGES[lang_mode]["name"]
+        lang_rule = (
+            f"LOCKED LANGUAGE MODE: You MUST speak and respond EXCLUSIVELY in {lang_name}. "
+            f"Every single word you say must be in {lang_name}. NEVER switch to or speak in any other language. "
+            f"If a tool result, news headline, or proper name is in another language, translate it naturally into {lang_name}."
+        )
+
     context_lines = [
         settings.system_prompt,
         pace_meta["instruction"],
-        "STRICT LANGUAGE POLICY: You and the user ONLY communicate in English, Hebrew (עברית), or Russian (Русский). "
-        "NEVER speak, reply, quote, or write transcriptions in any other language (never Arabic, Ukrainian, Spanish, "
-        "French, German, Chinese, etc.). "
-        "Never interpret unclear audio, pauses, or background noise as any language other than English, Hebrew, or Russian. "
-        "If a tool result, proper name, or news headline contains another language, translate it naturally into the active "
-        "language (English, Hebrew, or Russian). "
-        "Always reply naturally in whichever of those three languages (English, Hebrew, or Russian) the user spoke, "
-        "switching seamlessly if the user switches between them.",
+        lang_rule,
         f"Current local date and time: {now.strftime('%A, %d %B %Y, %H:%M')}.",
         f"Location: {settings.weather_city}.",
     ]
@@ -644,11 +720,18 @@ async def handle_live_websocket(
 ) -> None:
     await ws.accept()
 
+    ws_send_lock = asyncio.Lock()
+
     async def send_json(payload: dict[str, Any]) -> None:
         try:
-            await ws.send_text(json.dumps(payload))
+            async with ws_send_lock:
+                await ws.send_text(json.dumps(payload))
         except Exception:
             pass
+
+    async def send_bytes(data: bytes) -> None:
+        async with ws_send_lock:
+            await ws.send_bytes(data)
 
     if not settings.gemini_api_key:
         await send_json({
@@ -662,19 +745,29 @@ async def handle_live_websocket(
     # Wait for initial start message from browser
     video_enabled = False
     initial_prompt: str | None = None
+    lang_mode = settings.language_mode if settings.language_mode in AVAILABLE_LANGUAGES else DEFAULT_LANGUAGE_MODE
     try:
         raw_start = await asyncio.wait_for(ws.receive_text(), timeout=15.0)
         start_msg = json.loads(raw_start)
         if start_msg.get("type") == "start":
             video_enabled = bool(start_msg.get("video", False))
             initial_prompt = start_msg.get("prompt")
+            req_lang = str(start_msg.get("language") or "").strip().lower()
+            if req_lang in AVAILABLE_LANGUAGES:
+                lang_mode = req_lang
     except Exception as exc:
         logger.warning("Failed waiting for start frame: %s", exc)
         await ws.close()
         return
 
     persona_name = settings.persona_meta()["short_name"]
-    await send_json({"type": "status", "state": "connecting", "message": f"Connecting to {persona_name}..."})
+    lang_meta = AVAILABLE_LANGUAGES[lang_mode]
+    connect_suffix = f" ({lang_meta['short']})" if lang_mode != "auto" else ""
+    await send_json({
+        "type": "status",
+        "state": "connecting",
+        "message": f"Connecting to {persona_name}{connect_suffix}...",
+    })
 
     camera_acquired = False
     if video_enabled:
@@ -683,29 +776,39 @@ async def handle_live_websocket(
 
     stop_event = asyncio.Event()
     video_flag = {"enabled": video_enabled}
+    retranscribe_tasks: set[asyncio.Task[Any]] = set()
 
     try:
-        system_instruction = await build_system_instruction(settings, weather_service, tv, roomba, news)
+        system_instruction = await build_system_instruction(
+            settings, weather_service, tv, roomba, news, language_mode=lang_mode
+        )
 
         client = genai.Client(
             api_key=settings.gemini_api_key,
             http_options={"api_version": "v1beta"},
         )
 
+        voice_cfg = types.VoiceConfig(
+            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                voice_name=settings.gemini_voice
+            )
+        )
+        if lang_mode != "auto" and lang_meta["bcp47"]:
+            bcp47 = lang_meta["bcp47"]
+            speech_cfg = types.SpeechConfig(voice_config=voice_cfg, language_code=bcp47)
+            tx_langs = [bcp47]
+        else:
+            speech_cfg = types.SpeechConfig(voice_config=voice_cfg)
+            tx_langs = ALLOWED_LANGUAGES
+
         config_kwargs: dict[str, Any] = dict(
             response_modalities=["AUDIO"],
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name=settings.gemini_voice
-                    )
-                )
-            ),
+            speech_config=speech_cfg,
             input_audio_transcription=types.AudioTranscriptionConfig(
-                language_codes=ALLOWED_LANGUAGES,
+                language_codes=tx_langs,
             ),
             output_audio_transcription=types.AudioTranscriptionConfig(
-                language_codes=ALLOWED_LANGUAGES,
+                language_codes=tx_langs,
             ),
             system_instruction=types.Content(
                 parts=[types.Part(text=system_instruction)]
@@ -717,15 +820,83 @@ async def handle_live_websocket(
 
         config = types.LiveConnectConfig(**config_kwargs)
 
+        async def _retranscribe_turn(
+            turn_id: int,
+            pcm_bytes: bytes,
+            sample_rate: int,
+            orig_text: str,
+            target_lang: str | None,
+        ) -> None:
+            try:
+                wav_bytes = await asyncio.to_thread(_pcm_to_wav, pcm_bytes, sample_rate)
+                if lang_mode != "auto":
+                    target_name = AVAILABLE_LANGUAGES[lang_mode]["name"]
+                    prompt = (
+                        f"Transcribe the spoken audio verbatim in {target_name}. "
+                        f"Output ONLY the exact spoken words in {target_name}, with no translation, "
+                        "no timestamps, no explanations, and no markdown."
+                    )
+                else:
+                    hint = (
+                        f" (likely {AVAILABLE_LANGUAGES[target_lang]['name']})"
+                        if target_lang in AVAILABLE_LANGUAGES
+                        else ""
+                    )
+                    prompt = (
+                        f"Transcribe the spoken audio verbatim in the exact language spoken{hint}. "
+                        "The spoken language is strictly one of: English, Hebrew, or Russian. "
+                        "Do NOT translate into another language. Output ONLY the exact spoken words in the "
+                        "spoken language's native script (Latin for English, Hebrew script for Hebrew, "
+                        "Cyrillic for Russian), with no timestamps, no explanations, and no markdown."
+                    )
+                resp = await asyncio.wait_for(
+                    client.aio.models.generate_content(
+                        model=RETRANSCRIBE_MODEL,
+                        contents=[
+                            types.Part.from_bytes(data=wav_bytes, mime_type="audio/wav"),
+                            prompt,
+                        ],
+                        config=types.GenerateContentConfig(temperature=0.0),
+                    ),
+                    timeout=10.0,
+                )
+                raw = (resp.text or "").strip()
+                cleaned = _filter_transcript(raw, strict_chunk=False)
+                if cleaned and cleaned.strip() != orig_text.strip() and not stop_event.is_set():
+                    logger.info(
+                        "Synced mismatched turn %d transcript (%s): %r -> %r",
+                        turn_id,
+                        lang_mode,
+                        orig_text[:60],
+                        cleaned[:60],
+                    )
+                    await send_json({
+                        "type": "transcript_replace",
+                        "turn_id": turn_id,
+                        "role": "assistant",
+                        "text": cleaned.strip(),
+                    })
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                logger.debug("Turn %d re-transcription skipped: %s", turn_id, exc)
+
+        last_user_lang: str | None = lang_mode if lang_mode != "auto" else None
+        user_turn_chunks: list[str] = []
+
         async with client.aio.live.connect(model=settings.gemini_model, config=config) as session:
             await send_json({"type": "status", "state": "connected", "message": "Listening..."})
 
             if initial_prompt:
+                if lang_mode == "auto":
+                    det, _ = _detect_dominant_lang(initial_prompt)
+                    if det:
+                        last_user_lang = det
                 await send_json({"type": "transcript", "role": "user", "text": initial_prompt, "final": True})
                 await session.send_realtime_input(text=initial_prompt)
 
             async def client_to_gemini() -> None:
-                nonlocal camera_acquired
+                nonlocal camera_acquired, last_user_lang
                 try:
                     while not stop_event.is_set():
                         msg = await ws.receive()
@@ -755,6 +926,10 @@ async def handle_live_websocket(
                             elif mtype == "text" and data.get("text"):
                                 txt = str(data["text"]).strip()
                                 if txt:
+                                    if lang_mode == "auto":
+                                        det, _ = _detect_dominant_lang(txt)
+                                        if det:
+                                            last_user_lang = det
                                     await send_json({"type": "transcript", "role": "user", "text": txt, "final": True})
                                     await session.send_realtime_input(text=txt)
                 except WebSocketDisconnect:
@@ -780,14 +955,28 @@ async def handle_live_websocket(
                     logger.warning("camera_to_gemini ended: %s", exc)
 
             async def gemini_to_client() -> None:
+                nonlocal last_user_lang
                 sent_rate: int | None = None
+                active_turn_id = 0
+                in_assistant_turn = False
+                turn_audio = bytearray()
+                turn_out_chunks: list[str] = []
+
+                def ensure_turn_id() -> int:
+                    nonlocal active_turn_id, in_assistant_turn
+                    if not in_assistant_turn:
+                        active_turn_id += 1
+                        in_assistant_turn = True
+                        user_turn_chunks.clear()
+                    return active_turn_id
+
                 try:
                     while not stop_event.is_set():
                         async for response in session.receive():
                             if stop_event.is_set():
                                 break
 
-                            # Handle Gemini Live function calls (Samsung TV, Roomba, etc.)
+                            # Handle Gemini Live function calls (Samsung TV, Roomba, News, Weather)
                             if response.tool_call and response.tool_call.function_calls:
                                 fn_responses: list[types.FunctionResponse] = []
                                 for fc in response.tool_call.function_calls:
@@ -823,11 +1012,19 @@ async def handle_live_websocket(
                                 continue
 
                             if sc.interrupted:
+                                in_assistant_turn = False
+                                turn_audio.clear()
+                                turn_out_chunks.clear()
                                 await send_json({"type": "interrupted"})
 
                             if sc.input_transcription and sc.input_transcription.text:
                                 filtered_in = _filter_transcript(sc.input_transcription.text, strict_chunk=True)
                                 if filtered_in:
+                                    if lang_mode == "auto":
+                                        user_turn_chunks.append(filtered_in)
+                                        det, _ = _detect_dominant_lang("".join(user_turn_chunks))
+                                        if det:
+                                            last_user_lang = det
                                     await send_json({
                                         "type": "transcript",
                                         "role": "user",
@@ -840,9 +1037,12 @@ async def handle_live_websocket(
                             if sc.output_transcription and sc.output_transcription.text:
                                 filtered_out = _filter_transcript(sc.output_transcription.text, strict_chunk=False)
                                 if filtered_out:
+                                    tid = ensure_turn_id()
+                                    turn_out_chunks.append(filtered_out)
                                     await send_json({
                                         "type": "transcript",
                                         "role": "assistant",
+                                        "turn_id": tid,
                                         "text": filtered_out,
                                         "final": False,
                                     })
@@ -863,13 +1063,20 @@ async def handle_live_websocket(
                                             sent_rate = rate
                                             logger.info("Gemini audio format: %s (len=%d)", mime, len(part.inline_data.data))
                                             await send_json({"type": "audio_format", "rate": rate, "mime": mime})
-                                        await ws.send_bytes(part.inline_data.data)
+                                        ensure_turn_id()
+                                        if len(turn_audio) < MAX_TURN_AUDIO_BYTES:
+                                            remain = MAX_TURN_AUDIO_BYTES - len(turn_audio)
+                                            turn_audio.extend(part.inline_data.data[:remain])
+                                        await send_bytes(part.inline_data.data)
                                     elif part.text and not getattr(part, "thought", False):
                                         filtered_txt = _filter_transcript(part.text, strict_chunk=False)
                                         if filtered_txt:
+                                            tid = ensure_turn_id()
+                                            turn_out_chunks.append(filtered_txt)
                                             await send_json({
                                                 "type": "transcript",
                                                 "role": "assistant",
+                                                "turn_id": tid,
                                                 "text": filtered_txt,
                                                 "final": False,
                                             })
@@ -877,6 +1084,26 @@ async def handle_live_websocket(
                                             logger.debug("Filtered non-EN/HE/RU assistant text: %r", part.text)
 
                             if sc.turn_complete:
+                                if in_assistant_turn:
+                                    tid = active_turn_id
+                                    pcm_snap = bytes(turn_audio)
+                                    out_snap = "".join(turn_out_chunks)
+                                    rate_snap = sent_rate or 24000
+                                    expected = lang_mode if lang_mode != "auto" else last_user_lang
+                                    in_assistant_turn = False
+                                    turn_audio.clear()
+                                    turn_out_chunks.clear()
+
+                                    if (
+                                        len(pcm_snap) >= rate_snap  # >= 0.5s of 16-bit mono PCM
+                                        and _needs_retranscription(expected, out_snap, lang_mode)
+                                    ):
+                                        rt_task = asyncio.create_task(
+                                            _retranscribe_turn(tid, pcm_snap, rate_snap, out_snap, expected)
+                                        )
+                                        retranscribe_tasks.add(rt_task)
+                                        rt_task.add_done_callback(retranscribe_tasks.discard)
+
                                 await send_json({"type": "turn_complete"})
                 except asyncio.CancelledError:
                     pass
@@ -896,7 +1123,9 @@ async def handle_live_websocket(
             stop_event.set()
             for t in pending:
                 t.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
+            for t in list(retranscribe_tasks):
+                t.cancel()
+            await asyncio.gather(*pending, *list(retranscribe_tasks), return_exceptions=True)
 
     except Exception as exc:
         logger.exception("Gemini Live session error: %s", exc)
