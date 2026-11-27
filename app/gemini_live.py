@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+import unicodedata
 from datetime import datetime
 from typing import Any
 
@@ -393,18 +394,58 @@ def _execute_smart_home_tool(
     return {"ok": False, "error": f"Unknown or unavailable tool: {name}"}, f"Unknown tool: {name}", "⚙️"
 
 
-# Matches any character outside Basic/Extended Latin, Latin-1 symbols (°), Hebrew, Cyrillic, punctuation, and currency (₪/€)
+# Allowed characters: ASCII (English), Hebrew (U+0590-U+05FF), Russian Cyrillic (А-Я, а-я, Ё, ё),
+# general punctuation/bidi marks (U+2000-U+206F), currency (₪/€/₽, U+20A0-U+20CF), and safe symbols (°£§©«®±²³·»¼-¾×÷№™).
 _DISALLOWED_SCRIPT_RE = re.compile(
-    r"[^\x00-\x7F\u00A0-\u024F\u0400-\u04FF\u0590-\u05FF\u2000-\u20CF\s]"
+    r"[^\x00-\x7F\u00A0\u00A3\u00A7\u00A9\u00AB\u00AE\u00B0-\u00B3\u00B7\u00BB-\u00BE\u00D7\u00F7"
+    r"\u0401\u0410-\u044F\u0451\u0590-\u05FF\u2000-\u206F\u20A0-\u20CF\u2116\u2122\s]"
 )
+_FOREIGN_PUNCT = {"¡", "¿"}
+
+
+def _has_disallowed_letter(text: str) -> bool:
+    for ch in _DISALLOWED_SCRIPT_RE.findall(text):
+        if ch in _FOREIGN_PUNCT or unicodedata.category(ch).startswith(("L", "M")):
+            return True
+    return False
+
+
+def _filter_transcript(text: str, *, strict_chunk: bool = False) -> str | None:
+    """Keep only English, Hebrew, and Russian transcript content."""
+    if not text:
+        return None
+    if not _DISALLOWED_SCRIPT_RE.search(text):
+        return text
+
+    if strict_chunk and _has_disallowed_letter(text):
+        return None
+
+    parts = re.split(r"(\s+)", text)
+    kept: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        if part.isspace():
+            kept.append(part)
+            continue
+        if _has_disallowed_letter(part):
+            continue
+        cleaned = _DISALLOWED_SCRIPT_RE.sub("", part)
+        if cleaned:
+            kept.append(cleaned)
+
+    result = "".join(kept)
+    if not result.strip():
+        return None
+    # Collapse runs of spaces created by dropped tokens while preserving original edge spaces
+    lead = " " if text[0].isspace() else ""
+    trail = " " if text[-1].isspace() else ""
+    core = re.sub(r"[ \t]{2,}", " ", result.strip())
+    return f"{lead}{core}{trail}" if core else None
 
 
 def _is_allowed_transcript(text: str) -> bool:
-    if not text or not text.strip():
-        return False
-    # Reject chunks dominated by scripts outside English/Hebrew/Russian
-    disallowed = len(_DISALLOWED_SCRIPT_RE.findall(text))
-    return disallowed == 0
+    return _filter_transcript(text, strict_chunk=True) is not None
 
 
 async def build_system_instruction(
@@ -422,9 +463,13 @@ async def build_system_instruction(
     context_lines = [
         settings.system_prompt,
         pace_meta["instruction"],
-        "Strict language rule: The user ONLY speaks English, Hebrew (עברית), or Russian (Русский). "
-        "Never interpret unclear audio or background noise as any other language. "
-        "Always respond naturally in whichever of those three languages (English, Hebrew, or Russian) the user spoke, "
+        "STRICT LANGUAGE POLICY: You and the user ONLY communicate in English, Hebrew (עברית), or Russian (Русский). "
+        "NEVER speak, reply, quote, or write transcriptions in any other language (never Arabic, Ukrainian, Spanish, "
+        "French, German, Chinese, etc.). "
+        "Never interpret unclear audio, pauses, or background noise as any language other than English, Hebrew, or Russian. "
+        "If a tool result, proper name, or news headline contains another language, translate it naturally into the active "
+        "language (English, Hebrew, or Russian). "
+        "Always reply naturally in whichever of those three languages (English, Hebrew, or Russian) the user spoke, "
         "switching seamlessly if the user switches between them.",
         f"Current local date and time: {now.strftime('%A, %d %B %Y, %H:%M')}.",
         f"Location: {settings.weather_city}.",
@@ -671,23 +716,28 @@ async def handle_live_websocket(
                                 await send_json({"type": "interrupted"})
 
                             if sc.input_transcription and sc.input_transcription.text:
-                                if _is_allowed_transcript(sc.input_transcription.text):
+                                filtered_in = _filter_transcript(sc.input_transcription.text, strict_chunk=True)
+                                if filtered_in:
                                     await send_json({
                                         "type": "transcript",
                                         "role": "user",
-                                        "text": sc.input_transcription.text,
+                                        "text": filtered_in,
                                         "final": False,
                                     })
                                 else:
                                     logger.debug("Filtered non-EN/HE/RU input transcript: %r", sc.input_transcription.text)
 
                             if sc.output_transcription and sc.output_transcription.text:
-                                await send_json({
-                                    "type": "transcript",
-                                    "role": "assistant",
-                                    "text": sc.output_transcription.text,
-                                    "final": False,
-                                })
+                                filtered_out = _filter_transcript(sc.output_transcription.text, strict_chunk=False)
+                                if filtered_out:
+                                    await send_json({
+                                        "type": "transcript",
+                                        "role": "assistant",
+                                        "text": filtered_out,
+                                        "final": False,
+                                    })
+                                else:
+                                    logger.debug("Filtered non-EN/HE/RU output transcript: %r", sc.output_transcription.text)
 
                             if sc.model_turn and sc.model_turn.parts:
                                 for part in sc.model_turn.parts:
@@ -705,12 +755,16 @@ async def handle_live_websocket(
                                             await send_json({"type": "audio_format", "rate": rate, "mime": mime})
                                         await ws.send_bytes(part.inline_data.data)
                                     elif part.text and not getattr(part, "thought", False):
-                                        await send_json({
-                                            "type": "transcript",
-                                            "role": "assistant",
-                                            "text": part.text,
-                                            "final": False,
-                                        })
+                                        filtered_txt = _filter_transcript(part.text, strict_chunk=False)
+                                        if filtered_txt:
+                                            await send_json({
+                                                "type": "transcript",
+                                                "role": "assistant",
+                                                "text": filtered_txt,
+                                                "final": False,
+                                            })
+                                        else:
+                                            logger.debug("Filtered non-EN/HE/RU assistant text: %r", part.text)
 
                             if sc.turn_complete:
                                 await send_json({"type": "turn_complete"})

@@ -15,6 +15,11 @@
   let inCall = false;
   let lastRole = null;
   let lastBubbleEl = null;
+  let lastTextNode = null;
+  let pendingTranscriptOps = [];
+  let transcriptFlushTimer = null;
+  let transcriptScrollQueued = false;
+  let lastMicLevelStr = "";
 
   // --- Weather SVG Icons ---
   function weatherSvg(icon) {
@@ -54,6 +59,7 @@
   let lastClockDay = "";
 
   function updateClock() {
+    if (inCall) return;
     const now = new Date();
     const ss = String(now.getSeconds()).padStart(2, "0");
     clockSecEl.textContent = ss;
@@ -447,48 +453,105 @@
     }
   }
 
-  // --- Transcript UI ---
+  // --- Transcript UI (batched DOM writes to prevent Pi 4 main-thread layout stalls during long replies) ---
+  const MAX_TRANSCRIPT_BUBBLES = 60;
+  const TRANSCRIPT_FLUSH_MS = 90;
+
   function clearTranscript() {
+    if (transcriptFlushTimer) {
+      clearTimeout(transcriptFlushTimer);
+      transcriptFlushTimer = null;
+    }
+    pendingTranscriptOps = [];
     const list = $("transcript-list");
     list.innerHTML = `<div class="transcript-empty">${personaShortName()} is listening...</div>`;
     lastRole = null;
     lastBubbleEl = null;
+    lastTextNode = null;
   }
 
-  let transcriptScrollQueued = false;
-  const MAX_TRANSCRIPT_BUBBLES = 60;
+  function flushTranscript() {
+    if (transcriptFlushTimer) {
+      clearTimeout(transcriptFlushTimer);
+      transcriptFlushTimer = null;
+    }
+    if (pendingTranscriptOps.length === 0) return;
 
-  function appendTranscript(role, text, isFinal) {
-    if (!text) return;
+    const ops = pendingTranscriptOps;
+    pendingTranscriptOps = [];
+
     const list = $("transcript-list");
     const empty = list.querySelector(".transcript-empty");
-    if (empty) empty.remove();
+    let didWrite = false;
 
-    if (lastRole === role && lastBubbleEl) {
-      lastBubbleEl.textContent += text;
-    } else {
-      const div = document.createElement("div");
-      div.className = `bubble ${role}`;
-      div.dir = "auto";
-      div.textContent = text;
-      list.appendChild(div);
-      while (list.children.length > MAX_TRANSCRIPT_BUBBLES) {
-        if (list.firstElementChild === lastBubbleEl) break;
-        list.firstElementChild.remove();
+    for (let i = 0; i < ops.length; i++) {
+      const op = ops[i];
+      if (op.type === "break") {
+        lastRole = null;
+        lastBubbleEl = null;
+        lastTextNode = null;
+        continue;
       }
-      lastRole = role;
-      lastBubbleEl = div;
+      const { role, text, isFinal } = op;
+      if (!text) continue;
+
+      if (lastRole === role && lastBubbleEl && lastTextNode) {
+        lastTextNode.appendData(text);
+        didWrite = true;
+      } else {
+        if (!text.trim()) continue;
+        if (empty && empty.parentNode) empty.remove();
+        const div = document.createElement("div");
+        div.className = `bubble ${role}`;
+        div.dir = "auto";
+        const tn = document.createTextNode(text);
+        div.appendChild(tn);
+        list.appendChild(div);
+        while (list.children.length > MAX_TRANSCRIPT_BUBBLES) {
+          if (list.firstElementChild === div) break;
+          list.firstElementChild.remove();
+        }
+        lastRole = role;
+        lastBubbleEl = div;
+        lastTextNode = tn;
+        didWrite = true;
+      }
+
+      if (isFinal) {
+        lastRole = null;
+        lastBubbleEl = null;
+        lastTextNode = null;
+      }
     }
-    if (isFinal) {
-      lastRole = null;
-      lastBubbleEl = null;
-    }
-    if (!transcriptScrollQueued) {
+
+    if (didWrite && !transcriptScrollQueued) {
       transcriptScrollQueued = true;
       requestAnimationFrame(() => {
         transcriptScrollQueued = false;
         list.scrollTop = list.scrollHeight;
       });
+    }
+  }
+
+  function breakTranscriptBubble() {
+    pendingTranscriptOps.push({ type: "break" });
+    flushTranscript();
+  }
+
+  function appendTranscript(role, text, isFinal) {
+    if (!text) return;
+    const prev = pendingTranscriptOps.length > 0 ? pendingTranscriptOps[pendingTranscriptOps.length - 1] : null;
+    if (prev && prev.type === "text" && prev.role === role && !prev.isFinal) {
+      prev.text += text;
+      if (isFinal) prev.isFinal = true;
+    } else {
+      pendingTranscriptOps.push({ type: "text", role, text, isFinal: !!isFinal });
+    }
+
+    if (isFinal) {
+      flushTranscript();
+    } else if (!transcriptFlushTimer) {
+      transcriptFlushTimer = setTimeout(flushTranscript, TRANSCRIPT_FLUSH_MS);
     }
   }
 
@@ -535,15 +598,20 @@
     }
 
     await audioCtx.audioWorklet.addModule("/static/pcm-worklet.js?v=9");
-    await audioCtx.audioWorklet.addModule("/static/pcm-player-worklet.js?v=9");
+    await audioCtx.audioWorklet.addModule("/static/pcm-player-worklet.js?v=10");
 
     // Capture worklet (native -> 16kHz anti-aliased PCM)
     const source = audioCtx.createMediaStreamSource(micStream);
     captureNode = new AudioWorkletNode(audioCtx, "pcm-capture-processor");
     const micMeterEl = $("mic-meter-bar");
+    lastMicLevelStr = "";
     captureNode.port.onmessage = (event) => {
       const { pcm, level } = event.data;
-      micMeterEl.style.transform = `scaleX(${level.toFixed(3)})`;
+      const lvl = level > 0.005 ? level.toFixed(2) : "0";
+      if (lvl !== lastMicLevelStr) {
+        lastMicLevelStr = lvl;
+        micMeterEl.style.transform = `scaleX(${lvl})`;
+      }
       if (ws && ws.readyState === WebSocket.OPEN && !isMicMuted) {
         ws.send(pcm);
       }
@@ -645,14 +713,12 @@
           appendTranscript("tool", msg.text, true);
         } else if (msg.type === "interrupted") {
           flushPlayback();
-          lastRole = null;
-          lastBubbleEl = null;
+          breakTranscriptBubble();
         } else if (msg.type === "turn_complete") {
           if (playerNode) {
             playerNode.port.postMessage({ type: "flush_start" });
           }
-          lastRole = null;
-          lastBubbleEl = null;
+          breakTranscriptBubble();
         }
       } catch {}
     };
@@ -673,6 +739,11 @@
 
   function endCall() {
     inCall = false;
+    if (transcriptFlushTimer) {
+      clearTimeout(transcriptFlushTimer);
+      transcriptFlushTimer = null;
+    }
+    pendingTranscriptOps = [];
     stopAudio();
     setCameraStage(false);
 
@@ -688,6 +759,7 @@
 
     $("call-view").classList.add("hidden");
     $("dashboard-view").classList.remove("hidden");
+    updateClock();
   }
 
   // --- Wire UI Events ---
